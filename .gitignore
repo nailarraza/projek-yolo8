@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Anaconda
+.ipynb_checkpoints
+
+# Instance folder (jika berisi file sensitif atau database lokal)
+instance/
+# Jika Anda menggunakan SQLite dan menyimpannya di instance:
+# instance/*.sqlite
+# instance/*.db
+
+# File IDE/Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Log files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# YOLOv8 specific (tergantung hasil training)
+runs/
+yolov8_model/best.pt # Jika Anda tidak ingin menyimpan model besar di Git
+# yolov8_model/dataset/ # Jika dataset sangat besar dan tidak ingin di-push
+
+# File sensitif
+.env # Sudah ada di bagian Virtual Environment, tapi ditekankan lagi
+secrets.ini
+credentials.json
+*.pem
+*.key
+
+# XAMPP / MySQL (jika ada file konfigurasi lokal yang tidak perlu di-push)
+# Contoh: my.ini yang dimodifikasi lokal
+
+# ESP32-CAM build files (jika ada)
+esp32_cam_code/build/

@@ -1,0 +1,11 @@
+# File ini akan diisi dengan dependensi Python proyek
+# Contoh:
+flask
+ultralytics
+mysql-connector-python
+python-dotenv
+requests
+opencv-python
+numpy
+Pillow
+google-generativeai

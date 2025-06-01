@@ -6,17 +6,6 @@ Proyek ini adalah aplikasi web berbasis Flask yang dirancang untuk mendeteksi ku
 - [Nailar Raza]
 - [Angga Prasetyo, S.T., M.Kom]
 
-## Fitur Utama
-
-* **Autentikasi Pengguna:** Sistem registrasi dan login pengguna yang aman.
-* **Pengambilan Gambar Real-time:** Integrasi dengan ESP32-CAM untuk menangkap gambar sampel oli secara nirkabel.
-* **Deteksi Kualitas Oli:** Menggunakan model YOLOv8 yang telah dilatih untuk mengklasifikasikan kualitas oli dari gambar.
-* **Deskripsi Generatif:** Menghasilkan deskripsi dan saran berdasarkan hasil deteksi menggunakan Google Gemini API.
-* **Visualisasi Hasil:** Menampilkan gambar hasil deteksi dengan _bounding box_ dan informasi detail (kelas, skor kepercayaan, deskripsi).
-* **Riwayat Deteksi:** Menyimpan dan menampilkan riwayat deteksi untuk setiap pengguna.
-* **Antarmuka Responsif:** Tampilan yang dapat menyesuaikan diri dengan berbagai ukuran layar (desktop dan mobile) menggunakan Bootstrap.
-* **Mode Gelap (Dark Mode):** Pilihan tema tampilan untuk kenyamanan pengguna.
-
 ## Teknologi yang Digunakan
 
 * **Backend:** Python, Flask
@@ -31,6 +20,19 @@ Proyek ini adalah aplikasi web berbasis Flask yang dirancang untuk mendeteksi ku
 * **Formulir Web:** Flask-WTF
 * **Manajemen Sesi & Keamanan:** Flask-Login, Flask-Bcrypt
 * **Lainnya:** python-dotenv, Pillow, OpenCV-Python, Ultralytics, Requests
+
+## Fitur Utama
+
+* **Autentikasi Pengguna:** Sistem registrasi dan login pengguna yang aman.
+* **Pengambilan Gambar Real-time:** Integrasi dengan ESP32-CAM untuk menangkap gambar sampel oli secara nirkabel.
+* **Deteksi Kualitas Oli:** Menggunakan model YOLOv8 yang telah dilatih untuk mengklasifikasikan kualitas oli dari gambar.
+* **Deskripsi Generatif:** Menghasilkan deskripsi dan saran berdasarkan hasil deteksi menggunakan Google Gemini API.
+* **Visualisasi Hasil:** Menampilkan gambar hasil deteksi dengan _bounding box_ dan informasi detail (kelas, skor kepercayaan, deskripsi).
+* **Riwayat Deteksi:** Menyimpan dan menampilkan riwayat deteksi untuk setiap pengguna.
+* **Antarmuka Responsif:** Tampilan yang dapat menyesuaikan diri dengan berbagai ukuran layar (desktop dan mobile) menggunakan Bootstrap.
+* **Mode Gelap (Dark Mode):** Pilihan tema tampilan untuk kenyamanan pengguna.
+
+
 
 ## Prasyarat
 

@@ -2,6 +2,10 @@
 
 Proyek ini adalah aplikasi web berbasis Flask yang dirancang untuk mendeteksi kualitas oli motor menggunakan model deteksi objek YOLOv8, dengan input gambar dari ESP32-CAM. Aplikasi ini juga memanfaatkan Google Gemini API untuk menghasilkan deskripsi generatif berdasarkan hasil deteksi.
 
+## Kotributor dan Inisiator
+- [Nailar Raza]
+- [Angga Prasetyo, S.T., M.Kom]
+
 ## Fitur Utama
 
 * **Autentikasi Pengguna:** Sistem registrasi dan login pengguna yang aman.

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="light"> <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% if title %}
+        <title>Deteksi Oli - {{ title }}</title>
+    {% else %}
+        <title>Sistem Deteksi Kualitas Oli</title>
+    {% endif %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <style>
+        body {
+            padding-top: 56px; /* Padding untuk fixed navbar */
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            background-color: var(--bs-body-bg); /* Untuk dark mode */
+            color: var(--bs-body-color); /* Untuk dark mode */
+        }
+        .main-content {
+            flex: 1;
+        }
+        .footer {
+            background-color: #f8f9fa; /* Warna default footer */
+            padding: 1rem 0;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        /* Dark mode specific styles */
+        [data-bs-theme="dark"] .footer {
+            background-color: #212529;
+            color: #adb5bd;
+        }
+        .navbar-brand-custom {
+            font-weight: bold;
+            color: #6f42c1 !important; /* Warna ungu utama */
+        }
+        .btn-primary-custom {
+            background-color: #6f42c1;
+            border-color: #6f42c1;
+        }
+        .btn-primary-custom:hover {
+            background-color: #59359a;
+            border-color: #53328f;
+        }
+        .alert-success { background-color: #d1e7dd; border-color: #badbcc; color: #0f5132; }
+        .alert-danger { background-color: #f8d7da; border-color: #f5c2c7; color: #842029; }
+        .alert-info { background-color: #cff4fc; border-color: #b6effb; color: #055160; }
+        .alert-warning { background-color: #fff3cd; border-color: #ffecb5; color: #664d03; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand navbar-brand-custom" href="{{ url_for('main.dashboard') if current_user.is_authenticated else url_for('auth.login') }}">DeteksiOli YOLOv8</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNavDropdown">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link active" aria-current="page" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('main.histori') }}">Histori</a>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="navbarUserDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                {{ current_user.username }}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarUserDropdown">
+                                <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">Logout</a></li>
+                            </ul>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link {{ 'active' if request.endpoint == 'auth.login' else '' }}" href="{{ url_for('auth.login') }}">Login</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {{ 'active' if request.endpoint == 'auth.register' else '' }}" href="{{ url_for('auth.register') }}">Register</a>
+                        </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.tentang_aplikasi') }}">Tentang</a>
+                    </li>
+                    <li class="nav-item">
+                        <button id="darkModeToggle" class="btn btn-outline-light ms-2" type="button">Mode Gelap</button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content container mt-4 mb-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer mt-auto py-3 bg-light">
+        <div class="container text-center">
+            <span class="text-muted">&copy; {{ now.year }} - Sistem Deteksi Kualitas Oli Motor | Dibuat dengan Flask & YOLOv8</span>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script>
+        // Dark Mode Toggle
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        const htmlElement = document.documentElement; // Target the <html> element
+
+        // Cek preferensi dari localStorage
+        if (localStorage.getItem('theme') === 'dark') {
+            htmlElement.setAttribute('data-bs-theme', 'dark');
+            darkModeToggle.textContent = 'Mode Terang';
+        } else {
+            htmlElement.setAttribute('data-bs-theme', 'light');
+            darkModeToggle.textContent = 'Mode Gelap';
+        }
+
+        darkModeToggle.addEventListener('click', () => {
+            if (htmlElement.getAttribute('data-bs-theme') === 'dark') {
+                htmlElement.setAttribute('data-bs-theme', 'light');
+                localStorage.setItem('theme', 'light');
+                darkModeToggle.textContent = 'Mode Gelap';
+            } else {
+                htmlElement.setAttribute('data-bs-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+                darkModeToggle.textContent = 'Mode Terang';
+            }
+        });
+    </script>
+    {% block scripts %}{% endblock %} {# Blok untuk skrip spesifik halaman #}
+</body>
+</html>

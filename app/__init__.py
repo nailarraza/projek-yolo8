@@ -1,38 +1,53 @@
-from flask import Flask
-# from flask_sqlalchemy import SQLAlchemy # Akan diaktifkan nanti
-# from flask_migrate import Migrate # Akan diaktifkan nanti
-# from flask_login import LoginManager # Akan diaktifkan nanti
+from flask import Flask, send_from_directory
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+from flask_login import LoginManager
 from config import Config
 import os
+import logging # Untuk logging
 
-# db = SQLAlchemy() # Akan diaktifkan nanti
-# migrate = Migrate() # Akan diaktifkan nanti
-# login_manager = LoginManager() # Akan diaktifkan nanti
-# login_manager.login_view = 'auth.login' # Tentukan halaman login untuk @login_required
-# login_manager.login_message_category = 'info' # Kategori pesan flash
+# Inisialisasi ekstensi
+db = SQLAlchemy()
+migrate = Migrate()
+login_manager = LoginManager()
+login_manager.login_view = 'auth.login' # Rute yang akan diarahkan jika pengguna belum login & mencoba akses halaman terproteksi
+login_manager.login_message = 'Silakan login untuk mengakses halaman ini.'
+login_manager.login_message_category = 'info' # Kategori pesan flash Bootstrap
+
+# Setup logging dasar
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]')
+
 
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
+    # Inisialisasi ekstensi dengan aplikasi
+    db.init_app(app)
+    migrate.init_app(app, db)
+    login_manager.init_app(app)
+
     # Pastikan folder UPLOAD_FOLDER ada, jika tidak, buat folder tersebut
     upload_folder = app.config.get('UPLOAD_FOLDER', os.path.join(app.root_path, 'static/uploads'))
     if not os.path.exists(upload_folder):
-        os.makedirs(upload_folder)
+        try:
+            os.makedirs(upload_folder)
+            app.logger.info(f"Folder uploads berhasil dibuat di {upload_folder}")
+        except OSError as e:
+            app.logger.error(f"Gagal membuat folder uploads di {upload_folder}: {e}")
     app.config['UPLOAD_FOLDER'] = upload_folder # Simpan path absolutnya
 
-    # db.init_app(app) # Akan diaktifkan nanti
-    # migrate.init_app(app, db) # Akan diaktifkan nanti
-    # login_manager.init_app(app) # Akan diaktifkan nanti
+    # Registrasi Blueprint
+    # Kita akan membuat blueprint untuk autentikasi (auth) dan fitur utama (main)
+    from app.routes import auth_bp, main_bp # Akan dibuat nanti
+    app.register_blueprint(auth_bp, url_prefix='/auth')
+    app.register_blueprint(main_bp) # Tanpa prefix untuk rute utama
 
-    # Registrasi Blueprint (jika menggunakan)
-    # from app.auth.routes import auth_bp
-    # app.register_blueprint(auth_bp, url_prefix='/auth')
+    # Rute untuk favicon (opsional tapi baik untuk menghindari error 404)
+    @app.route('/favicon.ico')
+    def favicon():
+        return send_from_directory(os.path.join(app.root_path, 'static'),
+                           'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
-    # from app.main.routes import main_bp
-    # app.register_blueprint(main_bp)
-
-    # Untuk saat ini, kita akan mendaftarkan rute langsung dari app.routes
-    from app import routes, models # Pastikan models diimpor agar dikenali oleh Flask-Migrate nanti
-
+    app.logger.info("Aplikasi Flask berhasil dibuat dan dikonfigurasi.")
     return app

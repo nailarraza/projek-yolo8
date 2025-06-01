@@ -1,0 +1,87 @@
+{% extends "layouts/base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Histori Deteksi Oli Anda</h2>
+
+    {% if detections and detections.items %}
+    <div class="table-responsive shadow-sm rounded">
+        <table class="table table-hover table-striped align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th scope="col">ID Deteksi</th>
+                    <th scope="col">Timestamp</th>
+                    <th scope="col">Nama Gambar</th>
+                    <th scope="col">Kelas Deteksi</th>
+                    <th scope="col">Akurasi</th>
+                    <th scope="col">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for detection in detections.items %}
+                <tr>
+                    <td>{{ detection.id }}</td>
+                    <td>{{ detection.timestamp.strftime('%d %b %Y, %H:%M') if detection.timestamp else 'N/A' }}</td>
+                    <td>{{ detection.image_name | truncate(30) }}</td>
+                    <td>
+                        <span class="badge bg-primary-custom">{{ detection.detection_class | title if detection.detection_class else 'N/A' }}</span>
+                    </td>
+                    <td>
+                        {% if detection.confidence_score is not none %}
+                            {{ "%.2f%%" | format(detection.confidence_score * 100) }}
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('main.hasil_deteksi', deteksi_id=detection.id) }}" class="btn btn-sm btn-outline-primary-custom">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye-fill me-1" viewBox="0 0 16 16">
+                                <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
+                                <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8m8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7"/>
+                            </svg>
+                            Lihat
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if detections.pages > 1 %}
+    <nav aria-label="Navigasi histori" class="mt-4">
+        <ul class="pagination justify-content-center">
+            <li class="page-item {% if not detections.has_prev %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('main.histori', page=detections.prev_num) if detections.has_prev else '#' }}" tabindex="-1" aria-disabled="{{ 'true' if not detections.has_prev else 'false' }}">Sebelumnya</a>
+            </li>
+
+            {% for page_num in detections.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+                {% if page_num %}
+                    {% if detections.page == page_num %}
+                    <li class="page-item active" aria-current="page">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('main.histori', page=page_num) }}">{{ page_num }}</a>
+                    </li>
+                    {% endif %}
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+            {% endfor %}
+
+            <li class="page-item {% if not detections.has_next %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('main.histori', page=detections.next_num) if detections.has_next else '#' }}">Berikutnya</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+    {% else %}
+    <div class="alert alert-info text-center" role="alert">
+        <h4 class="alert-heading">Belum Ada Riwayat Deteksi</h4>
+        <p>Anda belum melakukan deteksi kualitas oli. Silakan kembali ke <a href="{{ url_for('main.dashboard') }}" class="alert-link">Dashboard</a> untuk memulai.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock content %}

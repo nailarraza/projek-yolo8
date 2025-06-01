@@ -48,7 +48,7 @@ Sebelum memulai, pastikan Anda telah menginstal perangkat lunak berikut:
 
 1.  **Clone Repositori:**
     ```bash
-    git clone [https://github.com/usernameAnda/projek-yolo8.git](https://github.com/usernameAnda/projek-yolo8.git)
+    git clone [https://github.com/usernameAnda/projek-yolo8.git] (https://github.com/usernameAnda/projek-yolo8.git)
     cd projek-yolo8
     ```
     *(Ganti `usernameAnda/projek-yolo8.git` dengan URL repositori Anda)*

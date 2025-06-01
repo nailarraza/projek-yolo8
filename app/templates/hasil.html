@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Hasil Deteksi - Deteksi Kualitas Oli{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Hasil Deteksi Kualitas Oli</h1>
+    <div id="detectionResult" class="row">
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header">
+                    Gambar Hasil Deteksi
+                </div>
+                <div class="card-body text-center">
+                     <img id="resultImage" src="https://placehold.co/600x450/eeeeee/cccccc?text=Hasil+Deteksi" alt="Hasil Deteksi" class="img-fluid rounded border" style="max-height: 450px;">
+                </div>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header">
+                    Informasi Deteksi
+                </div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item"><strong>Timestamp:</strong> <span id="resultTimestamp">-</span></li>
+                        <li class="list-group-item"><strong>Kelas Deteksi:</strong> <span id="resultClass" class="fw-bold">-</span></li>
+                        <li class="list-group-item"><strong>Skor Kepercayaan:</strong> <span id="resultConfidence">-</span></li>
+                        <li class="list-group-item">
+                            <strong>Deskripsi Generatif:</strong>
+                            <p id="resultDescription" class="mt-1">-</p>
+                        </li>
+                    </ul>
+                    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary-custom mt-3 w-100">Kembali ke Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Script untuk menampilkan hasil deteksi akan ditambahkan nanti
+</script>
+{% endblock %}

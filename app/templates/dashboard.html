@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Deteksi Kualitas Oli{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4">Dashboard Pengguna</h1>
+            <p>Selamat datang kembali, {{ current_user.username }}!</p>
+            <hr>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    Tampilan Kamera ESP32-CAM (Realtime)
+                </div>
+                <div class="card-body text-center">
+                    <img id="cameraFeed" src="https://placehold.co/640x480/eeeeee/cccccc?text=Camera+Feed+ESP32" alt="Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px;">
+                    <p class="mt-2 text-muted">Stream dari ESP32-CAM akan ditampilkan di sini.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    Kontrol Deteksi
+                </div>
+                <div class="card-body">
+                    <p>Klik tombol di bawah untuk menangkap gambar dan melakukan deteksi kualitas oli.</p>
+                    <button id="captureBtn" class="btn btn-primary-custom w-100 mb-2">
+                        <i class="bi bi-camera-fill"></i> Tangkap Gambar & Deteksi
+                    </button>
+                    <div id="loadingIndicator" style="display: none;" class="text-center mt-2">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Memproses...</p>
+                    </div>
+                    <div id="error-message-detection" class="alert alert-danger mt-2" style="display:none;"></div>
+                </div>
+            </div>
+             <div class="card mt-3">
+                <div class="card-header">
+                    Informasi Akun
+                </div>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item"><strong>Username:</strong> {{ current_user.username }}</li>
+                    <li class="list-group-item"><strong>Email:</strong> {{ current_user.email }}</li>
+                    <li class="list-group-item"><strong>Bergabung pada:</strong> {{ current_user.created_at.strftime('%d %B %Y') }}</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Script untuk dashboard akan ditambahkan di tahap selanjutnya
+    // Misalnya untuk menangani tombol capture dan menampilkan hasil
+    // Juga untuk dark mode toggle
+</script>
+{% endblock %}

@@ -1,45 +1,79 @@
 {% extends "base.html" %}
-{% block title %}Hasil Deteksi - Deteksi Kualitas Oli{% endblock %}
+{% block title %}Hasil Deteksi - {{ detection.detection_class if detection.detection_class else "Tidak Terdeteksi" }}{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
     <h1 class="mb-4">Hasil Deteksi Kualitas Oli</h1>
-    <div id="detectionResult" class="row">
-        <div class="col-md-7">
-            <div class="card">
+    {% if detection %}
+    <div class="row">
+        <div class="col-md-7 mb-3 mb-md-0">
+            <div class="card shadow-sm">
                 <div class="card-header">
                     Gambar Hasil Deteksi
                 </div>
                 <div class="card-body text-center">
-                     <img id="resultImage" src="https://placehold.co/600x450/eeeeee/cccccc?text=Hasil+Deteksi" alt="Hasil Deteksi" class="img-fluid rounded border" style="max-height: 450px;">
+                     {% if detection.image_path %}
+                     <img id="resultImage" src="{{ url_for('static', filename=detection.image_path) }}" alt="Hasil Deteksi {{ detection.image_name }}" class="img-fluid rounded border" style="max-height: 480px;">
+                     {% else %}
+                     <img id="resultImage" src="https://placehold.co/600x450/eeeeee/cccccc?text=Gambar+Tidak+Tersedia" alt="Gambar Tidak Tersedia" class="img-fluid rounded border" style="max-height: 480px;">
+                     {% endif %}
                 </div>
             </div>
         </div>
         <div class="col-md-5">
-            <div class="card">
+            <div class="card shadow-sm">
                 <div class="card-header">
                     Informasi Deteksi
                 </div>
                 <div class="card-body">
                     <ul class="list-group list-group-flush">
-                        <li class="list-group-item"><strong>Timestamp:</strong> <span id="resultTimestamp">-</span></li>
-                        <li class="list-group-item"><strong>Kelas Deteksi:</strong> <span id="resultClass" class="fw-bold">-</span></li>
-                        <li class="list-group-item"><strong>Skor Kepercayaan:</strong> <span id="resultConfidence">-</span></li>
+                        <li class="list-group-item">
+                            <strong>Timestamp:</strong> 
+                            <span id="resultTimestamp">{{ detection.timestamp.strftime('%d %B %Y, %H:%M:%S') if detection.timestamp else '-' }}</span>
+                        </li>
+                        <li class="list-group-item">
+                            <strong>Kelas Deteksi:</strong> 
+                            <span id="resultClass" class="fw-bold">
+                                {% if detection.detection_class %}
+                                    <span class="badge 
+                                        {% if 'baik' in detection.detection_class.lower() %} bg-success
+                                        {% elif 'perlu diganti' in detection.detection_class.lower() or 'kurang baik' in detection.detection_class.lower() %} bg-warning text-dark
+                                        {% elif 'buruk' in detection.detection_class.lower() %} bg-danger
+                                        {% else %} bg-secondary {% endif %}">
+                                        {{ detection.detection_class }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary">- Tidak Terdeteksi -</span>
+                                {% endif %}
+                            </span>
+                        </li>
+                        <li class="list-group-item">
+                            <strong>Skor Kepercayaan:</strong> 
+                            <span id="resultConfidence">
+                                {{ "%.2f%%"|format(detection.confidence_score * 100) if detection.confidence_score is not none else '-' }}
+                            </span>
+                        </li>
                         <li class="list-group-item">
                             <strong>Deskripsi Generatif:</strong>
-                            <p id="resultDescription" class="mt-1">-</p>
+                            <p id="resultDescription" class="mt-1 mb-0" style="white-space: pre-wrap;">{{ detection.generative_description if detection.generative_description else '-' }}</p>
                         </li>
                     </ul>
-                    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary-custom mt-3 w-100">Kembali ke Dashboard</a>
+                    <div class="mt-3 d-flex justify-content-between">
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary-custom">
+                            <i class="bi bi-arrow-left-circle"></i> Kembali ke Dashboard
+                        </a>
+                        <a href="{{ url_for('history') }}" class="btn btn-outline-primary-custom">
+                            <i class="bi bi-clock-history"></i> Lihat Histori
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+    {% else %}
+    <div class="alert alert-warning" role="alert">
+      Detail hasil deteksi tidak ditemukan.
+    </div>
+    {% endif %}
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-    // Script untuk menampilkan hasil deteksi akan ditambahkan nanti
-</script>
 {% endblock %}

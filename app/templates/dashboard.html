@@ -1,6 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Dashboard - Deteksi Kualitas Oli{% endblock %}
 
+{% block head_extra %}
+<style>
+    #cameraFeedContainer {
+        position: relative;
+        width: 100%;
+        max-width: 640px; /* Sesuaikan dengan ukuran stream */
+        margin: auto;
+    }
+    #cameraFeed {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid #ccc;
+        border-radius: 0.25rem;
+    }
+    .overlay-message {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0,0,0,0.7);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        display: none; /* Sembunyikan secara default */
+        z-index: 10;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="row">
@@ -12,13 +42,17 @@
     </div>
 
     <div class="row mt-4">
-        <div class="col-md-8">
+        <div class="col-md-8 mb-3 mb-md-0">
             <div class="card">
                 <div class="card-header">
-                    Tampilan Kamera ESP32-CAM (Realtime)
+                    Tampilan Kamera ESP32-CAM
                 </div>
                 <div class="card-body text-center">
-                    <img id="cameraFeed" src="https://placehold.co/640x480/eeeeee/cccccc?text=Camera+Feed+ESP32" alt="Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px;">
+                    <div id="cameraFeedContainer">
+                        <img id="cameraFeed" src="{{ url_for('static', filename='images/placeholder_camera.png') }}" alt="Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px;">
+                        <div id="streamLoadingMessage" class="overlay-message" style="display: block;">Memuat stream kamera...</div>
+                        <div id="streamErrorMessage" class="overlay-message" style="display: none;">Gagal memuat stream. Pastikan ESP32-CAM aktif.</div>
+                    </div>
                     <p class="mt-2 text-muted">Stream dari ESP32-CAM akan ditampilkan di sini.</p>
                 </div>
             </div>
@@ -37,9 +71,9 @@
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <p>Memproses...</p>
+                        <p>Memproses deteksi...</p>
                     </div>
-                    <div id="error-message-detection" class="alert alert-danger mt-2" style="display:none;"></div>
+                    <div id="errorMessageDetection" class="alert alert-danger mt-2" style="display:none;"></div>
                 </div>
             </div>
              <div class="card mt-3">
@@ -58,9 +92,103 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    // Script untuk dashboard akan ditambahkan di tahap selanjutnya
-    // Misalnya untuk menangani tombol capture dan menampilkan hasil
-    // Juga untuk dark mode toggle
+{{ super() }} <script>
+document.addEventListener('DOMContentLoaded', function() {
+    const cameraFeed = document.getElementById('cameraFeed');
+    const captureBtn = document.getElementById('captureBtn');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const errorMessageDetectionDiv = document.getElementById('errorMessageDetection');
+    
+    const streamLoadingMessage = document.getElementById('streamLoadingMessage');
+    const streamErrorMessage = document.getElementById('streamErrorMessage');
+    const videoStreamUrlFromFlask = "{{ video_stream_url | safe }}"; // URL dari Flask
+
+    // Fungsi untuk menampilkan pesan error
+    function showDetectionError(message) {
+        errorMessageDetectionDiv.textContent = message;
+        errorMessageDetectionDiv.style.display = 'block';
+    }
+
+    // Fungsi untuk menyembunyikan pesan error
+    function hideDetectionError() {
+        errorMessageDetectionDiv.style.display = 'none';
+    }
+
+    // Memuat stream kamera
+    if (cameraFeed && videoStreamUrlFromFlask) {
+        cameraFeed.onload = function() {
+            streamLoadingMessage.style.display = 'none';
+            streamErrorMessage.style.display = 'none';
+            console.log("Stream kamera berhasil dimuat.");
+        };
+        cameraFeed.onerror = function() {
+            streamLoadingMessage.style.display = 'none';
+            streamErrorMessage.style.display = 'block';
+            cameraFeed.src = "{{ url_for('static', filename='images/placeholder_camera_error.png') }}"; // Gambar placeholder jika error
+            console.error("Gagal memuat stream kamera.");
+        };
+        // Set src setelah event listener terpasang
+        cameraFeed.src = videoStreamUrlFromFlask;
+    } else {
+        console.warn("Elemen cameraFeed atau videoStreamUrlFromFlask tidak ditemukan.");
+        if(streamLoadingMessage) streamLoadingMessage.style.display = 'none';
+        if(streamErrorMessage) {
+            streamErrorMessage.textContent = "URL stream tidak tersedia.";
+            streamErrorMessage.style.display = 'block';
+        }
+    }
+
+    if (captureBtn) {
+        captureBtn.addEventListener('click', function() {
+            loadingIndicator.style.display = 'block';
+            captureBtn.disabled = true;
+            hideDetectionError();
+
+            fetch("{{ url_for('capture_and_detect') }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Jika menggunakan CSRF (belum diimplementasikan di sini, tapi baik untuk diketahui)
+                    // 'X-CSRFToken': '{{ csrf_token() }}' 
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    // Coba parse error message dari JSON jika ada
+                    return response.json().then(errData => {
+                        throw new Error(errData.message || `Error HTTP: ${response.status}`);
+                    }).catch(() => {
+                        // Jika parsing JSON gagal, lempar error status HTTP saja
+                        throw new Error(`Error HTTP: ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Redirect ke halaman hasil
+                    if (data.result_page_url) {
+                        window.location.href = data.result_page_url;
+                    } else {
+                        // Fallback jika URL tidak ada (seharusnya tidak terjadi)
+                        alert('Deteksi berhasil, tetapi halaman hasil tidak ditemukan.');
+                        loadingIndicator.style.display = 'none';
+                        captureBtn.disabled = false;
+                    }
+                } else {
+                    showDetectionError(data.message || 'Terjadi kesalahan saat deteksi.');
+                    loadingIndicator.style.display = 'none';
+                    captureBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showDetectionError(error.message || 'Tidak dapat terhubung ke server atau terjadi kesalahan jaringan.');
+                loadingIndicator.style.display = 'none';
+                captureBtn.disabled = false;
+            });
+        });
+    }
+});
 </script>
 {% endblock %}

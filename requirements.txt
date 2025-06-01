@@ -7,3 +7,19 @@ opencv-python
 ultralytics
 google-generativeai
 # Tambahkan library lain di sini nanti (misal: Flask-SQLAlchemy, Flask-Migrate, Pillow, opencv-python, ultralytics, google-generativeai, dll)
+
+
+Flask
+python-dotenv
+ultralytics
+Flask-SQLAlchemy
+Flask-Migrate
+PyMySQL
+Flask-WTF
+email_validator
+google-generativeai
+Pillow
+opencv-python
+Werkzeug
+Flask-Login
+bcrypt

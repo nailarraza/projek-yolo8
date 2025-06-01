@@ -1,0 +1,9 @@
+Flask
+python-dotenv
+Flask-SQLAlchemy
+Flask-Migrate
+Pillow
+opencv-python
+ultralytics
+google-generativeai
+# Tambahkan library lain di sini nanti (misal: Flask-SQLAlchemy, Flask-Migrate, Pillow, opencv-python, ultralytics, google-generativeai, dll)

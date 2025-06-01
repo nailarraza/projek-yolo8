@@ -17,3 +17,6 @@ Proyek ini bertujuan untuk membangun sistem deteksi kualitas oli motor menggunak
 
 ## Kontributor
 - Nailar Raza
+
+## Inisiator
+- Angga Prasetyo, S.T. M.Kom

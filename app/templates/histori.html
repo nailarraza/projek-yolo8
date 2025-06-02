@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+
+{% block title %}Histori Deteksi{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Riwayat Deteksi Kualitas Oli</h2>
+    <hr>
+    {% if detections %}
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Timestamp</th>
+                    <th scope="col">Gambar</th>
+                    <th scope="col">Kelas Deteksi</th>
+                    <th scope="col">Akurasi</th>
+                    <th scope="col">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for detection in detections %}
+                <tr>
+                    <th scope="row">{{ loop.index }}</th>
+                    <td>{{ detection.timestamp.strftime('%Y-%m-%d %H:%M:%S') if detection.timestamp else 'N/A' }}</td>
+                    <td>
+                        <img src="{{ url_for('static', filename=detection.image_path) if detection.image_path else 'https://placehold.co/80x60/eeeeee/cccccc?text=N/A' }}" 
+                             alt="{{ detection.image_name if detection.image_name else 'Gambar Deteksi' }}" 
+                             class="img-thumbnail" style="width: 80px; height: auto;">
+                    </td>
+                    <td>{{ detection.detection_class if detection.detection_class else 'N/A' }}</td>
+                    <td>{{ '%.2f%%'|format(detection.confidence_score * 100) if detection.confidence_score is not none else 'N/A' }}</td>
+                    <td>
+                        <a href="{{ url_for('hasil', detection_id=detection.id) }}" class="btn btn-sm btn-info">Lihat Detail</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info" role="alert">
+        Belum ada riwayat deteksi yang tersimpan.
+    </div>
+    {% endif %}
+    <a href="{{ url_for('dashboard') }}" class="btn btn-primary mt-3">Kembali ke Dashboard</a>
+</div>
+{% endblock %}

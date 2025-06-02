@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+
+{% block title %}Hasil Deteksi Oli{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Hasil Deteksi Kualitas Oli</h2>
+    <hr>
+
+    <div class="card mb-3">
+        <div class="row g-0">
+            <div class="col-md-7">
+                <img src="https://placehold.co/600x400/dddddd/999999?text=Gambar+Hasil+Deteksi" class="img-fluid rounded-start" alt="Hasil Deteksi Oli">
+            </div>
+            <div class="col-md-5">
+                <div class="card-body">
+                    <h5 class="card-title">Detail Deteksi</h5>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item"><strong>Timestamp:</strong> <span id="timestamp">N/A</span></li>
+                        <li class="list-group-item"><strong>Kelas Terdeteksi:</strong> <span id="detectionClass" class="fw-bold">N/A</span></li>
+                        <li class="list-group-item"><strong>Tingkat Akurasi:</strong> <span id="confidenceScore">N/A</span></li>
+                    </ul>
+                    <hr>
+                    <h6>Deskripsi (dari Gemini API):</h6>
+                    <p id="generativeDescription" class="card-text"><em>Deskripsi hasil analisis akan muncul di sini...</em></p>
+                    <a href="{{ url_for('dashboard') }}" class="btn btn-primary mt-2">Kembali ke Dashboard</a>
+                    <a href="{{ url_for('histori') }}" class="btn btn-secondary mt-2">Lihat Histori</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- 
+    <div class="alert alert-info" role="alert">
+        Belum ada hasil deteksi untuk ditampilkan. Silakan lakukan deteksi melalui Dashboard.
+    </div>
+    -->
+</div>
+{% endblock %}

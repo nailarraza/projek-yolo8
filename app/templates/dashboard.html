@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-3">
+        <div class="col">
+            <h2>Selamat Datang, {{ username }}!</h2>
+            <p>Ini adalah halaman dashboard Anda. Fitur deteksi akan ditampilkan di sini.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    Tampilan Kamera Realtime (ESP32-CAM)
+                </div>
+                <div class="card-body text-center">
+                    <img id="cameraFeed" src="https://placehold.co/640x480/eeeeee/cccccc?text=Feed+Kamera+ESP32-CAM" alt="Live Camera Feed Placeholder" class="img-fluid rounded border" style="max-height: 480px;">
+                    <p class="mt-2 text-muted">Stream kamera akan muncul di sini.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    Kontrol Deteksi
+                </div>
+                <div class="card-body">
+                    <p>Klik tombol di bawah untuk mengambil gambar dan melakukan deteksi kualitas oli.</p>
+                    <form method="POST" action="{{ url_for('capture_and_detect') }}">
+                        <button type="submit" class="btn btn-success w-100">
+                            Tangkap Gambar & Deteksi
+                        </button>
+                    </form>
+                    <hr>
+                    <div id="detectionResultInfo" class="mt-3">
+                        <p class="text-muted">Hasil deteksi akan ditampilkan di <a href="{{ url_for('hasil') }}">halaman hasil</a>.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    // Script untuk mengambil feed dari ESP32-CAM akan ditambahkan di sini nanti
+    // Contoh:
+    // const cameraFeed = document.getElementById('cameraFeed');
+    // cameraFeed.src = "http://<IP_ESP32_CAM>/stream"; // atau endpoint yang sesuai
+</script>
+{% endblock %}

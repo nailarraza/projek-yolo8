@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="light"> <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} - Deteksi Oli Motor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            padding-top: 56px; /* Sesuaikan jika tinggi navbar berubah */
+        }
+        .main-content {
+            flex: 1;
+        }
+        .footer {
+            background-color: #f8f9fa; /* Warna default light */
+            padding: 1rem 0;
+            text-align: center;
+        }
+        /* Styling dasar untuk tema ungu (bisa disempurnakan) */
+        :root {
+            --bs-primary-rgb: 102, 16, 242; /* Ungu Bootstrap */
+        }
+        .navbar-custom {
+            background-color: #6f42c1; /* Warna ungu contoh */
+        }
+         /* Dark mode specific styles */
+        [data-bs-theme="dark"] .footer {
+            background-color: #212529; /* Warna dark mode footer */
+        }
+        [data-bs-theme="dark"] .navbar-custom {
+             background-color: #4c2a85; /* Warna ungu lebih gelap untuk dark mode */
+        }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    {% include 'partials/_navbar.html' %}
+
+    <main role="main" class="container mt-4 main-content">
+        {% include 'partials/_alerts.html' %}
+        {% block content %}{% endblock %}
+    </main>
+
+    {% include 'partials/_footer.html' %}
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    {% block scripts_extra %}{% endblock %}
+</body>
+</html>

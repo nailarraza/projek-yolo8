@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+
+{% block title %}Registrasi Pengguna Baru{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="card-title text-center mb-4">Register</h2>
+                 {% if error_message %}
+                <div class="alert alert-danger">{{ error_message }}</div>
+                {% endif %}
+                <form method="POST" action="{{ url_for('register') }}">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" name="username" placeholder="Pilih username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" name="email" placeholder="Masukkan alamat email valid" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" placeholder="Minimal 6 karakter" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirm_password" class="form-label">Konfirmasi Password</label>
+                        <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder="Ulangi password Anda" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Register</button>
+                </form>
+                <hr>
+                <p class="text-center mb-0">Sudah punya akun? <a href="{{ url_for('login') }}">Login di sini</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+# Virtual Environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / Editor specific
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Kredensial & file sensitif (jika ada)
+# *.env
+# config.ini
+
+# Model besar (jika tidak ingin di-push ke GitHub)
+ model/*.pt
+
+# Database files (jika menggunakan SQLite lokal untuk development)
+# *.sqlite3
+# *.db

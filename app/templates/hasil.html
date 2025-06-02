@@ -4,35 +4,65 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>Hasil Deteksi Kualitas Oli</h2>
-    <hr>
+    {% if detection %}
+        <h2>Hasil Deteksi Kualitas Oli</h2>
+        <p class="text-muted">Deteksi dilakukan pada: {{ detection.timestamp.strftime('%d %B %Y, %H:%M:%S') if detection.timestamp else 'N/A' }}</p>
+        <hr>
+        <div class="card mb-3">
+            <div class="row g-0">
+                <div class="col-md-7">
+                    {% if detection.image_path %}
+                    <img src="{{ url_for('static', filename=detection.image_path) }}" 
+                         class="img-fluid rounded-start" alt="Gambar Hasil Deteksi: {{ detection.image_name }}"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x400/dddddd/999999?text=Gambar+Tidak+Ditemukan';">
+                    {% else %}
+                    <img src="https://placehold.co/600x400/dddddd/999999?text=Gambar+Tidak+Tersedia" 
+                         class="img-fluid rounded-start" alt="Gambar Tidak Tersedia">
+                    {% endif %}
+                </div>
+                <div class="col-md-5">
+                    <div class="card-body">
+                        <h5 class="card-title">Detail Deteksi</h5>
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item">
+                                <strong>Nama File Asli:</strong> {{ detection.image_name if detection.image_name else 'N/A' }}
+                            </li>
+                            <li class="list-group-item">
+                                <strong>Kelas Terdeteksi:</strong> 
+                                <span class="fw-bold">
+                                    {% if detection.detection_class == "Oli Baik" %}
+                                        <span class="badge bg-success">{{ detection.detection_class }}</span>
+                                    {% elif detection.detection_class == "Oli Perlu Ganti" %}
+                                        <span class="badge bg-warning text-dark">{{ detection.detection_class }}</span>
+                                    {% elif detection.detection_class %}
+                                        <span class="badge bg-danger">{{ detection.detection_class }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">N/A</span>
+                                    {% endif %}
+                                </span>
+                            </li>
+                            <li class="list-group-item">
+                                <strong>Tingkat Akurasi:</strong> 
+                                {{ '%.2f%%'|format(detection.confidence_score * 100) if detection.confidence_score is not none else 'N/A' }}
+                            </li>
+                        </ul>
+                        <hr>
+                        <h6>Deskripsi (dari Gemini API - Placeholder):</h6>
+                        <p class="card-text"><em>{{ detection.generative_description if detection.generative_description else 'Deskripsi tidak tersedia.' }}</em></p>
 
-    <div class="card mb-3">
-        <div class="row g-0">
-            <div class="col-md-7">
-                <img src="https://placehold.co/600x400/dddddd/999999?text=Gambar+Hasil+Deteksi" class="img-fluid rounded-start" alt="Hasil Deteksi Oli">
-            </div>
-            <div class="col-md-5">
-                <div class="card-body">
-                    <h5 class="card-title">Detail Deteksi</h5>
-                    <ul class="list-group list-group-flush">
-                        <li class="list-group-item"><strong>Timestamp:</strong> <span id="timestamp">N/A</span></li>
-                        <li class="list-group-item"><strong>Kelas Terdeteksi:</strong> <span id="detectionClass" class="fw-bold">N/A</span></li>
-                        <li class="list-group-item"><strong>Tingkat Akurasi:</strong> <span id="confidenceScore">N/A</span></li>
-                    </ul>
-                    <hr>
-                    <h6>Deskripsi (dari Gemini API):</h6>
-                    <p id="generativeDescription" class="card-text"><em>Deskripsi hasil analisis akan muncul di sini...</em></p>
-                    <a href="{{ url_for('dashboard') }}" class="btn btn-primary mt-2">Kembali ke Dashboard</a>
-                    <a href="{{ url_for('histori') }}" class="btn btn-secondary mt-2">Lihat Histori</a>
+                        <div class="mt-3">
+                            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Deteksi Lagi</a>
+                            <a href="{{ url_for('histori') }}" class="btn btn-secondary">Lihat Semua Histori</a>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-    <!-- 
-    <div class="alert alert-info" role="alert">
-        Belum ada hasil deteksi untuk ditampilkan. Silakan lakukan deteksi melalui Dashboard.
-    </div>
-    -->
+    {% else %}
+        <div class="alert alert-warning" role="alert">
+            Data deteksi tidak ditemukan. Mungkin ID tidak valid atau Anda tidak memiliki akses.
+        </div>
+        <a href="{{ url_for('histori') }}" class="btn btn-primary">Kembali ke Histori</a>
+    {% endif %}
 </div>
 {% endblock %}

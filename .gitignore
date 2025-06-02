@@ -1,0 +1,30 @@
+# Lingkungan Virtual
+venv/
+.venv/
+env/
+ENV/
+*.pyc
+__pycache__/
+.env
+
+# File IDE
+.vscode/
+.idea/
+
+# File Sistem Operasi
+.DS_Store
+Thumbs.db
+
+# File Log
+*.log
+
+# File Database Lokal (jika ada)
+# instance/
+# *.sqlite3
+
+# File hasil kompilasi atau build (jika ada)
+# build/
+# dist/
+
+# File sensitif (contoh, jika ada file konfigurasi lokal)
+# config.ini

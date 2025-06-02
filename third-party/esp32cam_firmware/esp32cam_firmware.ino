@@ -47,8 +47,8 @@
 // ===========================================
 //      Pengaturan WiFi
 // ===========================================
-const char* ssid = "NAMA_WIFI_ANDA";         // Ganti dengan nama WiFi Anda
-const char* password = "PASSWORD_WIFI_ANDA"; // Ganti dengan password WiFi Anda
+const char* ssid = "Gopo Network";         // Ganti dengan nama WiFi Anda
+const char* password = "sister23"; // Ganti dengan password WiFi Anda
 
 // ===========================================
 //      Pengaturan Web Server

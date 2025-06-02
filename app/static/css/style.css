@@ -1,28 +1,104 @@
-/* Custom styles will go here */
+/* D:/projek-yolo8/app/static/css/style.css */
 body {
-    font-family: 'Inter', sans-serif; /* Contoh penggunaan font Inter jika diinginkan */
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding-top: 70px; /* Sesuaikan dengan tinggi navbar Anda */
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.main-content {
+    flex: 1;
+    padding-bottom: 2rem; /* Beri ruang sebelum footer */
 }
 
 .navbar-custom {
-    /* Warna ungu utama Anda bisa didefinisikan di sini atau di layout.html */
-    /* background-color: #6f42c1; */ /* Contoh ungu dari Bootstrap docs */
+    background-color: #6f42c1; /* Ungu primer */
+    /* box-shadow: 0 2px 4px rgba(0,0,0,.1); */
 }
 
-/* Tambahan untuk Dark Mode jika ingin lebih spesifik */
+.navbar-brand {
+    font-weight: bold;
+}
+
+.btn-primary {
+    background-color: #6f42c1;
+    border-color: #6f42c1;
+}
+.btn-primary:hover, .btn-primary:focus {
+    background-color: #5a379e;
+    border-color: #533391;
+}
+.btn-success {
+    background-color: #198754; /* Bootstrap green */
+    border-color: #198754;
+}
+.btn-success:hover {
+    background-color: #157347;
+    border-color: #146c43;
+}
+
+.card {
+    border-radius: 0.5rem; /* Sedikit lebih rounded */
+    /* box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,.075); */
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0,0,0,.075); /* Warna hover default Bootstrap */
+}
+
+/* Dark Mode Specifics */
 [data-bs-theme="dark"] body {
-    background-color: #2b3035; /* Contoh warna background gelap */
+    background-color: #212529; /* Warna background gelap Bootstrap */
     color: #dee2e6;
 }
 
+[data-bs-theme="dark"] .navbar-custom {
+    background-color: #4c2a85; /* Ungu lebih gelap untuk dark mode */
+}
+
 [data-bs-theme="dark"] .card {
-    background-color: #343a40;
+    background-color: #2b3035; /* Warna card lebih gelap */
+    border-color: #495057;
+    color: #dee2e6;
+}
+[data-bs-theme="dark"] .list-group-item {
+    background-color: #2b3035;
     border-color: #495057;
 }
 
 [data-bs-theme="dark"] .table {
-    --bs-table-bg: #343a40;
-    --bs-table-striped-bg: #3c4148;
-    --bs-table-hover-bg: #454b52;
+    --bs-table-bg: #2b3035;
+    --bs-table-striped-bg: #32383e;
+    --bs-table-hover-bg: #373d43;
     --bs-table-color: #dee2e6;
     --bs-table-border-color: #495057;
+}
+[data-bs-theme="dark"] .footer {
+    background-color: #1c1f23; /* Footer lebih gelap lagi */
+    color: #adb5bd;
+}
+[data-bs-theme="dark"] .btn-outline-light {
+    --bs-btn-color: #ffc107; /* Kuning untuk kontras */
+    --bs-btn-border-color: #ffc107;
+    --bs-btn-hover-bg: #ffc107;
+    --bs-btn-hover-color: #000;
+}
+[data-bs-theme="dark"] .btn-outline-warning { /* Jika tombol berubah jadi warning */
+    --bs-btn-color: #f8f9fa;
+    --bs-btn-border-color: #f8f9fa;
+    --bs-btn-hover-bg: #f8f9fa;
+    --bs-btn-hover-color: #000;
+}
+
+/* Responsivitas untuk gambar di halaman hasil */
+@media (max-width: 767.98px) {
+    .card .row.g-0 > .col-md-7,
+    .card .row.g-0 > .col-md-5 {
+        width: 100%;
+    }
+    .card .row.g-0 > .col-md-7 img {
+        border-radius: 0.5rem 0.5rem 0 0 !important; /* Atur border radius atas */
+    }
+     .card .row.g-0 > .col-md-5 .card-body {
+        border-radius: 0 0 0.5rem 0.5rem !important; /* Atur border radius bawah */
+    }
 }

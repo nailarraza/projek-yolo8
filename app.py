@@ -6,9 +6,25 @@ import mysql.connector
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps # Untuk decorator login_required
 from datetime import datetime # <<<<------ ADD THIS LINE TO IMPORT DATETIME
+import google.generativeai as genai
+from dotenv import load_dotenv # Untuk memuat variabel dari .env
 
 # Inisialisasi Aplikasi Flask
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
+load_dotenv() # Memuat variabel dari file .env
+
+# Konfigurasi Google Gemini API
+GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    print("PERINGATAN: GOOGLE_GEMINI_API_KEY tidak ditemukan di .env. Fitur deskripsi Gemini tidak akan berfungsi.")
+    # Anda bisa memutuskan untuk menghentikan aplikasi atau melanjutkan dengan fungsionalitas terbatas
+else:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        print("Google Gemini API berhasil dikonfigurasi.")
+    except Exception as e:
+        print(f"Error saat mengkonfigurasi Gemini API: {e}")
+        GEMINI_API_KEY = None # Nonaktifkan jika konfigurasi gagal
 
 # Konfigurasi Aplikasi
 app.config['SECRET_KEY'] = os.urandom(24).hex()

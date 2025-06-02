@@ -5,23 +5,42 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import mysql.connector
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps # Untuk decorator login_required
+from datetime import datetime # <<<<------ ADD THIS LINE TO IMPORT DATETIME
 
 # Inisialisasi Aplikasi Flask
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
 
 # Konfigurasi Aplikasi
-# Flask session memerlukan SECRET_KEY. Ini digunakan untuk mengamankan data session.
-# Ganti dengan kunci acak yang kuat di lingkungan produksi.
-app.config['SECRET_KEY'] = os.urandom(24).hex() # Menghasilkan kunci acak setiap kali server dimulai (untuk pengembangan)
-# Untuk produksi, sebaiknya set sebagai environment variable atau string tetap yang aman.
-# app.config['SECRET_KEY'] = 'your_very_secret_and_random_key_here'
+app.config['SECRET_KEY'] = os.urandom(24).hex()
 
 # Konfigurasi Database MySQL
-# Pastikan service MySQL Anda berjalan dan database 'db_projek_yolo8' sudah ada.
 DB_HOST = "localhost"
-DB_USER = "root"  # Ganti jika user MySQL Anda berbeda
-DB_PASSWORD = ""  # Ganti jika password MySQL Anda berbeda
+DB_USER = "root"
+DB_PASSWORD = ""
 DB_NAME = "db_projek_yolo8"
+
+# ++++ START OF ADDED CODE ++++
+# Custom Jinja filter for date formatting
+@app.template_filter('date')
+def custom_date_filter(value, fmt=None):
+    """
+    Custom Jinja filter to format dates.
+    Handles "now" to display current time, and maps "Y" to "%Y" for year.
+    """
+    if fmt == "Y":
+        format_string = "%Y"  # Map "Y" to strftime's "%Y" for year
+    elif fmt:
+        format_string = fmt   # Allow other strftime format strings
+    else:
+        format_string = "%Y-%m-%d %H:%M:%S" # Default format
+
+    if value == "now":
+        # Using utcnow() for server-side consistency, or use now() for local time
+        return datetime.utcnow().strftime(format_string)
+    if isinstance(value, datetime): # Check if the value is already a datetime object
+        return value.strftime(format_string)
+    return value # Return value as is if not "now" or datetime object
+# ++++ END OF ADDED CODE ++++
 
 # Fungsi untuk mendapatkan koneksi database
 def get_db_connection():
@@ -35,7 +54,7 @@ def get_db_connection():
         return conn
     except mysql.connector.Error as err:
         flash(f"Kesalahan koneksi database: {err}", "danger")
-        print(f"Database connection error: {err}") # Untuk debugging di console server
+        print(f"Database connection error: {err}")
         return None
 
 # Decorator untuk memastikan pengguna sudah login
@@ -74,11 +93,10 @@ def register():
 
         conn = get_db_connection()
         if not conn:
-            return render_template('register.html', error_message="Tidak dapat terhubung ke database.") # Atau halaman error khusus
+            return render_template('register.html', error_message="Tidak dapat terhubung ke database.")
 
-        cursor = conn.cursor(dictionary=True) # dictionary=True agar hasil query bisa diakses seperti dict
+        cursor = conn.cursor(dictionary=True)
 
-        # Cek apakah username atau email sudah ada
         cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
         existing_user = cursor.fetchone()
 
@@ -98,7 +116,7 @@ def register():
             return redirect(url_for('login'))
         except mysql.connector.Error as err:
             flash(f'Terjadi kesalahan saat registrasi: {err}', 'danger')
-            conn.rollback() # Batalkan transaksi jika ada error
+            conn.rollback()
             return redirect(url_for('register'))
         finally:
             cursor.close()
@@ -109,7 +127,7 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        identifier = request.form['identifier'] # Bisa username atau email
+        identifier = request.form['identifier']
         password = request.form['password']
 
         if not identifier or not password:
@@ -122,7 +140,6 @@ def login():
 
         cursor = conn.cursor(dictionary=True)
         
-        # Coba cari berdasarkan username atau email
         cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (identifier, identifier))
         user = cursor.fetchone()
         cursor.close()
@@ -142,30 +159,23 @@ def login():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Di sini nanti akan ada logika untuk menampilkan feed kamera ESP32-CAM
     return render_template('dashboard.html', title="Dashboard", username=session.get('username'))
 
 @app.route('/capture_and_detect', methods=['POST'])
 @login_required
 def capture_and_detect():
-    # Logika untuk menangkap gambar dari ESP32-CAM dan melakukan deteksi YOLOv8
-    # Akan diimplementasikan pada tahap selanjutnya
     flash('Fitur deteksi belum diimplementasikan.', 'info')
-    return redirect(url_for('dashboard')) # Sementara redirect ke dashboard
+    return redirect(url_for('dashboard'))
 
-@app.route('/hasil') # Seharusnya /hasil/<id_deteksi> atau semacamnya
+@app.route('/hasil')
 @login_required
 def hasil():
-    # Menampilkan hasil deteksi spesifik
-    # Akan diimplementasikan pada tahap selanjutnya
     return render_template('hasil.html', title="Hasil Deteksi", username=session.get('username'))
 
 @app.route('/histori')
 @login_required
 def histori():
-    # Menampilkan riwayat deteksi pengguna
-    # Akan diimplementasikan pada tahap selanjutnya dengan query ke database
-    detections_history = [] # Placeholder
+    detections_history = []
     return render_template('histori.html', title="Histori Deteksi", username=session.get('username'), detections=detections_history)
 
 @app.route('/logout')
@@ -176,19 +186,14 @@ def logout():
     flash('Anda telah logout.', 'success')
     return redirect(url_for('login'))
 
-# Error Handlers (Contoh Sederhana)
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('errors/404.html', title="Halaman Tidak Ditemukan"), 404
 
 @app.errorhandler(500)
 def internal_server_error(e):
-    # Penting: Jangan tampilkan detail error internal ke pengguna di produksi
     return render_template('errors/500.html', title="Kesalahan Server"), 500
 
 
 if __name__ == '__main__':
-    # Pastikan folder untuk upload gambar (jika ada) sudah dibuat
-    # if not os.path.exists('app/static/uploads'):
-    #    os.makedirs('app/static/uploads')
-    app.run(debug=True, host='0.0.0.0', port=5000) # debug=True untuk pengembangan
+    app.run(debug=True, host='0.0.0.0', port=5000)

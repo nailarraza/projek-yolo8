@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-CAM & Flask - Uji Capture</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #333; }
+        .stream-container, .capture-container { margin-bottom: 20px; text-align: center; }
+        img#videoStream, img#capturedImage {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #eee; /* Placeholder color */
+        }
+        img#videoStream { min-height: 240px; } /* Minimum height for stream placeholder */
+        img#capturedImage { min-height: 300px; } /* Minimum height for captured image placeholder */
+
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .status { margin-top: 15px; font-style: italic; color: #555; }
+        .status.loading { font-weight: bold; color: #007bff; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Uji Capture ESP32-CAM dengan Flask</h1>
+        <p>Halaman ini bertujuan untuk menguji fitur capture gambar dari ESP32-CAM dan menampilkannya setelah diproses oleh backend Flask.
+           Pastikan backend Flask memiliki endpoint <code>/api/capture_and_process</code> yang mengembalikan data gambar/JSON secara langsung.</p>
+
+        <div class="stream-container">
+            <h2>Live Stream ESP32-CAM</h2>
+            <!-- 
+                Variabel `esp32_stream_url_from_flask` dan `esp32_display_ip_from_flask`
+                diharapkan di-pass dari route Flask yang me-render template ini.
+                `esp32_stream_url_from_flask` adalah URL lengkap untuk stream.
+                `esp32_display_ip_from_flask` adalah IP (atau pesan status) untuk ditampilkan.
+            -->
+            {% set final_stream_url = esp32_stream_url_from_flask if esp32_stream_url_from_flask else '#' %}
+            <img id="videoStream" 
+                 src="{{ final_stream_url }}" 
+                 alt="Live Stream ESP32-CAM" 
+                 onerror="handleStreamError(this, '{{ esp32_display_ip_from_flask if esp32_display_ip_from_flask else Tidak dikonfigurasi }}');">
+        </div>
+
+        <div class="capture-container">
+            <h2>Capture & Proses Gambar</h2>
+            <button id="captureButton">Tangkap & Proses Gambar</button>
+            <div id="statusArea" class="status" aria-live="polite">Menunggu perintah...</div>
+            <img id="capturedImage" src="#" alt="Gambar Hasil Capture" style="display:none;">
+        </div>
+    </div>
+
+    <script>
+        const captureButton = document.getElementById('captureButton');
+        const capturedImage = document.getElementById('capturedImage');
+        const statusArea = document.getElementById('statusArea');
+        const videoStream = document.getElementById('videoStream');
+
+        function handleStreamError(imageElement, displayIp) {
+            imageElement.alt = `Stream tidak tersedia. Periksa konfigurasi dan koneksi ESP32-CAM. IP/URL Stream: ${displayIp}`;
+            imageElement.style.backgroundColor = '#fdd'; // Warna latar error
+            const statusMsg = `<span class='error'>Gagal memuat stream dari ${displayIp}. Pastikan ESP32-CAM aktif dan IP/URL stream benar.</span>`;
+            if (statusArea.textContent.startsWith('Menunggu')) { // Hanya update jika status masih default
+                statusArea.innerHTML = statusMsg;
+            }
+            console.error(statusMsg);
+        }
+
+        // Cek apakah stream error saat load awal
+        videoStream.addEventListener('error', function() {
+            if (videoStream.getAttribute('src') === '#') { // Jika src adalah '#' karena tidak ada URL valid
+                 statusArea.innerHTML = '<span class="error">URL stream kamera tidak dikonfigurasi dengan benar di sisi server.</span>';
+            }
+            // Fungsi handleStreamError sudah dipanggil oleh atribut onerror
+        });
+
+
+        captureButton.addEventListener('click', async () => {
+            captureButton.disabled = true;
+            statusArea.className = 'status loading'; // Tambahkan kelas untuk styling loading
+            statusArea.textContent = 'Memulai proses capture...';
+            capturedImage.style.display = 'none'; // Sembunyikan gambar lama
+            capturedImage.src = '#'; // Reset src gambar lama
+            let currentStage = 'inisiasi'; // Untuk melacak tahapan proses
+
+            try {
+                currentStage = 'mengirim permintaan ke server';
+                statusArea.textContent = 'Mengirim permintaan ke server Flask...';
+                // Panggil endpoint Flask untuk capture dan proses
+                const response = await fetch('/api/capture_and_process', {
+                    method: 'POST',
+                });
+                currentStage = 'menunggu respons server';
+                statusArea.textContent = 'Menunggu respons dari server Flask... (Ini mungkin memerlukan waktu jika kamera atau model sedang bekerja)';
+                if (!response.ok) {
+                    // Coba baca error dari JSON jika ada
+                    let errorMsg = `Error: ${response.status} ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData && errorData.error) {
+                            errorMsg = `Error: ${errorData.error}`;
+                        }
+                    } catch (e) {
+                        // Biarkan errorMsg default jika parsing JSON gagal
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                currentStage = 'memproses respons';
+                statusArea.textContent = 'Memproses respons dari server...';
+                // Jika respons adalah gambar (misalnya, image/jpeg)
+                if (response.headers.get("content-type") && response.headers.get("content-type").startsWith("image/")) {
+                    const imageBlob = await response.blob();
+                    const imageUrl = URL.createObjectURL(imageBlob);
+                    capturedImage.src = imageUrl;
+                    capturedImage.style.display = 'block';
+                    statusArea.textContent = 'Gambar berhasil diproses!';
+                    statusArea.className = 'status'; // Reset kelas status
+                } 
+                // Jika respons adalah JSON (misalnya, jika Anda mengubah Flask untuk mengembalikan JSON)
+                // else if (response.headers.get("content-type") && response.headers.get("content-type").includes("application/json")) {
+                //     const jsonData = await response.json();
+                //     statusArea.textContent = 'Data JSON diterima: ' + JSON.stringify(jsonData);
+                //     // Tampilkan data JSON sesuai kebutuhan
+                // }
+                else {
+                    // Handle tipe konten lain atau jika tidak ada gambar
+                    const textData = await response.text();
+                    statusArea.textContent = 'Respons diterima (bukan gambar): ' + textData.substring(0,100) + "...";
+                    statusArea.className = 'status error';
+                    console.log("Respons dari server:", textData);
+                }
+
+            } catch (error) {
+                console.error('Error saat capture:', error);
+                statusArea.innerHTML = `<span class="error">Gagal melakukan capture (Tahap: ${currentStage}): ${error.message}</span>`;
+                statusArea.className = 'status error';
+                capturedImage.style.display = 'none';
+            } finally {
+                // Jangan reset kelas status di sini agar pesan error tetap terlihat
+                captureButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

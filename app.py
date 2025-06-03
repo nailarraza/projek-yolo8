@@ -1,12 +1,13 @@
 # D:/projek-yolo8/app.py
 
 import os
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response as FlaskResponse # Mengganti nama Response agar tidak bentrok
 import mysql.connector
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash # type: ignore
 from functools import wraps # Untuk decorator login_required
 from datetime import datetime
 import google.generativeai as genai
+from typing import Optional, Dict, Any, Tuple, Union # Import tipe yang dibutuhkan
 from dotenv import load_dotenv # Untuk memuat variabel dari .env
 import requests # <-- Tambahkan ini untuk mengambil gambar dari ESP32-CAM
 from ultralytics import YOLO # Pastikan ultralytics terinstal
@@ -54,6 +55,7 @@ DB_NAME = os.getenv("DB_NAME", "db_projek_yolo8") # Di README namanya projek_yol
 # namun konfigurasi di .env dapat diubah untuk DroidCam atau sumber kamera IP lainnya.
 RAW_CAMERA_IP = os.getenv("ESP32_CAM_IP")
 CAMERA_BASE_IP = None # Akan diisi setelah pemeriksaan skema
+CAMERA_REQUEST_TIMEOUT = int(os.getenv("CAMERA_REQUEST_TIMEOUT", "30")) # Default timeout 30 detik untuk request ke kamera
 
 if RAW_CAMERA_IP:
     if not RAW_CAMERA_IP.startswith(('http://', 'https://')):
@@ -61,6 +63,11 @@ if RAW_CAMERA_IP:
         print(f"INFO: Skema 'http://' ditambahkan secara otomatis ke ESP32_CAM_IP. IP Kamera efektif: {CAMERA_BASE_IP}")
     else:
         CAMERA_BASE_IP = RAW_CAMERA_IP
+else:
+    # Jika RAW_CAMERA_IP tidak ada, CAMERA_BASE_IP juga tidak akan ada.
+    # Pesan peringatan akan dicetak nanti jika CAMERA_BASE_IP masih None.
+    pass
+
 
 CAMERA_STREAM_PATH = os.getenv("ESP32_CAM_STREAM_PATH", "/stream")
 CAMERA_CAPTURE_PATH = os.getenv("ESP32_CAM_CAPTURE_PATH", "/capture")
@@ -68,11 +75,15 @@ CAMERA_CAPTURE_PATH = os.getenv("ESP32_CAM_CAPTURE_PATH", "/capture")
 if not CAMERA_BASE_IP:
     print("PERINGATAN: ESP32_CAM_IP (atau IP Kamera) tidak diatur di .env. Fitur kamera tidak akan berfungsi.")
 else:
-    # Cetak konfigurasi hanya jika CAMERA_BASE_IP berhasil ditentukan
-    print(f"Konfigurasi Kamera: IP Dasar = {CAMERA_BASE_IP}, Path Stream = {CAMERA_STREAM_PATH}, Path Capture = {CAMERA_CAPTURE_PATH}")
+    print(f"Konfigurasi Kamera:")
+    print(f"  IP Dasar Kamera: {CAMERA_BASE_IP}")
+    print(f"  Path Stream: {CAMERA_STREAM_PATH}")
+    print(f"  Path Capture: {CAMERA_CAPTURE_PATH}")
+    print(f"  Timeout Request Kamera: {CAMERA_REQUEST_TIMEOUT} detik")
+    print(f"  PENTING: Pastikan 'Path Capture' ({CAMERA_CAPTURE_PATH}) di atas SESUAI dengan endpoint di firmware ESP32-CAM Anda (misalnya, '/capture_image' jika menggunakan firmware yang disarankan). Atur ESP32_CAM_CAPTURE_PATH di file .env jika perlu.")
 
 @app.template_filter('date')
-def custom_date_filter(value, fmt=None):
+def custom_date_filter(value: Union[str, datetime], fmt: Optional[str] = None) -> str:
     if fmt == "Y":
         format_string = "%Y"
     elif fmt:
@@ -85,9 +96,9 @@ def custom_date_filter(value, fmt=None):
     if isinstance(value, datetime):
         return value.strftime(format_string)
     return value
-
-def get_db_connection():
-    try:
+ 
+def get_db_connection() -> Optional[mysql.connector.MySQLConnection]:
+    try: 
         conn = mysql.connector.connect(
             host=DB_HOST,
             user=DB_USER,
@@ -100,23 +111,23 @@ def get_db_connection():
         print(f"Database connection error: {err}")
         return None
 
-def login_required(f):
+def login_required(f: callable) -> callable:
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated_function(*args: Any, **kwargs: Any) -> Any:
         if 'user_id' not in session:
             flash('Anda harus login untuk mengakses halaman ini.', 'warning')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
-
+ 
 @app.route('/')
-def index():
+def index() -> FlaskResponse:
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
-
+ 
 @app.route('/register', methods=['GET', 'POST'])
-def register():
+def register() -> Union[str, FlaskResponse]:
     if request.method == 'POST':
         username = request.form['username']
         email = request.form['email']
@@ -162,9 +173,9 @@ def register():
             conn.close()
 
     return render_template('register.html', title="Register")
-
+ 
 @app.route('/login', methods=['GET', 'POST'])
-def login():
+def login() -> Union[str, FlaskResponse]:
     if request.method == 'POST':
         identifier = request.form['identifier']
         password = request.form['password']
@@ -193,10 +204,10 @@ def login():
             return redirect(url_for('login'))
 
     return render_template('login.html', title="Login")
-
+ 
 @app.route('/dashboard')
 @login_required
-def dashboard():
+def dashboard() -> str:
     esp32_stream_url = None
     if CAMERA_BASE_IP:
         esp32_stream_url = f"{CAMERA_BASE_IP}{CAMERA_STREAM_PATH}"
@@ -209,8 +220,8 @@ def dashboard():
                            username=session.get('username'),
                            esp32_cam_ip=CAMERA_BASE_IP, # Untuk ditampilkan di teks
                            esp32_stream_url=esp32_stream_url) # Untuk <img> src
-
-def get_gemini_description(image_path_for_gemini, detected_class_name):
+ 
+def get_gemini_description(image_path_for_gemini: str, detected_class_name: str) -> str:
     """
     Fungsi untuk mendapatkan deskripsi dari Google Gemini API.
     """
@@ -222,7 +233,7 @@ def get_gemini_description(image_path_for_gemini, detected_class_name):
         image_input = genai.upload_file(image_path_for_gemini) # Pastikan path ini bisa diakses
         prompt = f"Jelaskan kondisi oli berdasarkan gambar ini. Hasil deteksi menunjukkan bahwa ini adalah '{detected_class_name}'. Berikan penjelasan singkat dan saran jika ada."
         response = model_gemini.generate_content([prompt, image_input])
-        return response.text
+        return response.text if response.text else "Tidak ada teks yang dihasilkan oleh Gemini."
     except Exception as e:
         print(f"Error saat menghubungi Gemini API: {e}")
         # Cek apakah error karena file tidak ditemukan atau masalah API
@@ -232,7 +243,7 @@ def get_gemini_description(image_path_for_gemini, detected_class_name):
 
 @app.route('/capture_and_detect', methods=['POST'])
 @login_required
-def capture_and_detect():
+def capture_and_detect() -> FlaskResponse:
     if not CAMERA_BASE_IP:
         flash("Alamat IP Kamera belum dikonfigurasi. Tidak dapat mengambil gambar.", "danger")
         return redirect(url_for('dashboard'))
@@ -246,7 +257,7 @@ def capture_and_detect():
 
     request_headers = {'Connection': 'close'} # Tambahkan header ini
     try:
-        response = requests.get(capture_url, headers=request_headers, timeout=10) # Timeout 300 detik (5 menit)
+        response = requests.get(capture_url, headers=request_headers, timeout=CAMERA_REQUEST_TIMEOUT)
         response.raise_for_status() # Akan raise error jika status code 4xx atau 5xx
         # Validasi Content-Type dari respons ESP32-CAM
         content_type = response.headers.get('Content-Type')
@@ -254,6 +265,7 @@ def capture_and_detect():
             error_message = f"Konten yang diterima dari ESP32-CAM bukan gambar (Content-Type: {content_type}). Pastikan URL capture ({capture_url}) sudah benar dan ESP32-CAM mengirimkan gambar."
             flash(error_message, "danger")
             print(f"Error: {error_message}. Response text (first 500 chars): {response.text[:500]}")
+            print(f"Pastikan ESP32_CAM_CAPTURE_PATH di .env (saat ini '{CAMERA_CAPTURE_PATH}') sesuai dengan endpoint di firmware ESP32-CAM.")
             return redirect(url_for('dashboard'))
         # Simpan gambar yang ditangkap
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -348,11 +360,82 @@ def capture_and_detect():
         flash(f"Terjadi kesalahan: {e}", "danger")
         return redirect(url_for('dashboard'))
 
+# --- Route untuk halaman uji kamera (index.html) ---
+@app.route('/uji_kamera')
+@login_required # Anda bisa menghapus ini jika halaman uji tidak memerlukan login
+def uji_kamera_page() -> str:
+    """
+    Route untuk me-render halaman uji kamera (index.html).
+    Halaman ini akan menggunakan endpoint /api/capture_and_process.
+    """
+    stream_url_for_template = None
+    display_ip_for_template = "Kamera tidak dikonfigurasi"
+
+    if CAMERA_BASE_IP:
+        stream_url_for_template = f"{CAMERA_BASE_IP}{CAMERA_STREAM_PATH}"
+        display_ip_for_template = CAMERA_BASE_IP
+        print(f"Uji Kamera Page: URL Stream = {stream_url_for_template}")
+    else:
+        flash("Alamat IP Kamera belum dikonfigurasi di file .env. Stream tidak akan tampil.", "warning")
+
+    return render_template('index.html',
+                           title="Uji Capture Kamera",
+                           username=session.get('username'),
+                           esp32_stream_url_from_flask=stream_url_for_template,
+                           esp32_display_ip_from_flask=display_ip_for_template)
+
+# --- API Endpoint untuk capture dan proses (digunakan oleh index.html) ---
+@app.route('/api/capture_and_process', methods=['POST'])
+@login_required # Anda bisa menghapus ini jika tidak memerlukan login untuk API ini
+def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]]:
+    """
+    API endpoint untuk mengambil gambar dari kamera, memprosesnya (misalnya dengan YOLO),
+    dan mengembalikan gambar hasil proses atau data JSON.
+    Endpoint ini TIDAK melakukan redirect, melainkan mengembalikan respons langsung.
+    """
+    if not CAMERA_BASE_IP:
+        return {"error": "Alamat IP Kamera belum dikonfigurasi."}, 503
+
+    if not model_yolo: # Asumsi model_yolo sudah dimuat global
+        return {"error": "Model YOLO tidak berhasil dimuat."}, 503
+
+    capture_url: str = f"{CAMERA_BASE_IP}{CAMERA_CAPTURE_PATH}"
+    print(f"API Capture: Mencoba mengambil gambar dari URL = {capture_url}")
+
+    request_headers = {'Connection': 'close'}
+    try:
+        response_cam = requests.get(capture_url, headers=request_headers, timeout=CAMERA_REQUEST_TIMEOUT)
+        response_cam.raise_for_status()
+
+        content_type = response_cam.headers.get('Content-Type')
+        if not content_type or not content_type.startswith('image/'):
+            error_msg = f"Konten dari kamera bukan gambar (Content-Type: {content_type}). URL: {capture_url}"
+            print(f"API Error: {error_msg}")
+            return {"error": error_msg}, 502
+
+        image_bytes = response_cam.content
+
+        # ---- LOGIKA DETEKSI YOLOv8 (Sederhana) ----
+        # Untuk contoh ini, kita akan langsung mengembalikan gambar yang diterima dari kamera.
+        # Anda bisa menambahkan logika deteksi YOLO di sini jika diperlukan,
+        # dan kemudian mengembalikan gambar yang sudah dianotasi.
+        # Misalnya: results = model_yolo(image_bytes) -> proses results -> annotated_image_bytes
+        # return Response(annotated_image_bytes, mimetype='image/jpeg')
+
+        return FlaskResponse(image_bytes, mimetype=content_type) # Mengembalikan gambar asli dari kamera
+    except requests.exceptions.Timeout:
+        return {"error": f"Timeout saat menghubungi kamera di {capture_url} setelah {CAMERA_REQUEST_TIMEOUT} detik."}, 504
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Error koneksi ke kamera: {str(e)}"}, 502
+    except Exception as e:
+        print(f"API Error internal: {e}")
+        return {"error": f"Terjadi kesalahan internal server: {str(e)}"}, 500
+
 @app.route('/hasil/<int:detection_id>')
 @login_required
-def hasil(detection_id):
-    detection_data = None
-    conn = get_db_connection()
+def hasil(detection_id: int) -> Union[str, FlaskResponse]:
+    detection_data: Optional[Dict[str, Any]] = None
+    conn: Optional[mysql.connector.MySQLConnection] = get_db_connection()
     if conn:
         cursor = None
         try:
@@ -383,10 +466,10 @@ def hasil(detection_id):
 
 @app.route('/histori')
 @login_required
-def histori():
-    detections_history = []
-    conn = get_db_connection()
-    cursor = None
+def histori() -> str:
+    detections_history: list = []
+    conn: Optional[mysql.connector.MySQLConnection] = get_db_connection()
+    cursor: Optional[mysql.connector.cursor.MySQLCursorDict] = None
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
@@ -405,20 +488,20 @@ def histori():
 
 @app.route('/logout')
 @login_required
-def logout():
+def logout() -> FlaskResponse:
     session.pop('user_id', None)
     session.pop('username', None)
     flash('Anda telah logout.', 'success')
     return redirect(url_for('login'))
 
 @app.errorhandler(404)
-def page_not_found(e):
+def page_not_found(e: Any) -> Tuple[str, int]:
     return render_template('errors/404.html', title="Halaman Tidak Ditemukan"), 404
 
 @app.errorhandler(500)
-def internal_server_error(e):
+def internal_server_error(e: Any) -> Tuple[str, int]:
     return render_template('errors/500.html', title="Kesalahan Server"), 500
-
+ 
 
 if __name__ == '__main__':
     # Pastikan host 0.0.0.0 agar bisa diakses dari jaringan lokal oleh ESP32-CAM (jika perlu komunikasi balik)

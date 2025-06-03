@@ -1,9 +1,11 @@
 #include "esp_camera.h"
 #include <WiFi.h>
-#include "soc/soc.h"             // Disable brownout problems
-#include "soc/rtc_cntl_reg.h"  // Disable brownout problems
+#include "soc/soc.h"          // Disable brownout problems
+#include "soc/rtc_cntl_reg.h" // Disable brownout problems
 #include "driver/rtc_io.h"
-#include <WebServer.h>          // Library WebServer standar
+#include <WebServer.h>        // Library WebServer standar
+#include "FS.h"               // Untuk sistem file
+#include "SD_MMC.h"           // Untuk interaksi dengan Kartu SD menggunakan slot MMC
 
 // Ganti dengan kredensial WiFi kamu
 const char* ssid = "Gopo Network";
@@ -30,11 +32,16 @@ const char* password = "sister23";
 
 WebServer server(80); // Port server HTTP (default 80)
 
+// Variabel untuk nomor file foto
+static int image_count = 0;
+
 // Deklarasi fungsi
 void startCameraServer();
 void handleCapture();
 void handleStream();
 void handleRoot();
+void initSDCard();     // Fungsi baru untuk inisialisasi SD Card
+void savePhoto(camera_fb_t * fb); // Fungsi baru untuk menyimpan foto
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
@@ -64,23 +71,11 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG; // Format JPEG untuk streaming
-
-  // Pengaturan Resolusi dan Kualitas:
-  // Untuk kamera 5MP, resolusi awal bisa diatur lebih rendah untuk stabilitas streaming.
-  // Pilihan resolusi: FRAMESIZE_QVGA (320x240), FRAMESIZE_CIF (352x288), FRAMESIZE_VGA (640x480),
-  // FRAMESIZE_SVGA (800x600), FRAMESIZE_XGA (1024x768), FRAMESIZE_SXGA (1280x1024), FRAMESIZE_UXGA (1600x1200)
-  // Untuk streaming, FRAMESIZE_VGA atau FRAMESIZE_SVGA biasanya cukup.
-  // Untuk capture 5MP, gunakan FRAMESIZE_QXGA (2048x1536) atau lebih tinggi jika didukung,
-  // namun ini akan lambat dan membutuhkan banyak memori. Uji kestabilan.
-  // Mulai dengan resolusi rendah untuk streaming (misalnya FRAMESIZE_VGA).
-  config.frame_size = FRAMESIZE_VGA; // Resolusi awal untuk streaming
-  config.jpeg_quality = 12; // Kualitas JPEG (0-63), semakin rendah semakin cepat tapi kualitas menurun
-  config.fb_count = 2;      // Gunakan 2 frame buffer untuk streaming yang lebih lancar jika PSRAM tersedia.
-                            // Ini membantu mengurangi error "fb_get(): Failed to get the frame on time!".
-                            // Jika PSRAM tidak ada atau terbatas, kembali ke 1.
-  config.fb_location = CAMERA_FB_IN_PSRAM; // Alokasikan frame buffer di PSRAM
-  config.grab_mode = CAMERA_GRAB_LATEST;   // Ambil frame terbaru, buang yang lama jika buffer penuh.
-                                           // Baik untuk streaming agar latensi rendah.
+  config.frame_size = FRAMESIZE_VGA;    // Resolusi awal untuk streaming
+  config.jpeg_quality = 12;             // Kualitas JPEG (0-63)
+  config.fb_count = 2;                  // Gunakan 2 frame buffer
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.grab_mode = CAMERA_GRAB_LATEST;
 
   // Inisialisasi Kamera
   esp_err_t err = esp_camera_init(&config);
@@ -90,30 +85,20 @@ void setup() {
     Serial.println("Coba turunkan resolusi atau periksa catu daya.");
     return;
   }
+  Serial.println("Inisialisasi Kamera BERHASIL.");
 
-  sensor_t * s = esp_camera_sensor_get();
-  // Atur beberapa parameter kamera jika diperlukan (opsional, uncomment dan sesuaikan nilainya)
-  // s->set_brightness(s, 0);     // -2 to 2
-  // s->set_contrast(s, 0);       // -2 to 2
-  // s->set_saturation(s, 0);     // -2 to 2
-  // s->set_special_effect(s, 0); // 0 to 6 (0 - no effect)
-  // s->set_whitebal(s, 1);       // 0 = disable , 1 = enable
-  // s->set_awb_gain(s, 1);       // 0 = disable , 1 = enable
-  // s->set_wb_mode(s, 0);        // 0 to 4
-  // s->set_exposure_ctrl(s, 1);  // 0 = disable , 1 = enable
-  // s->set_aec_value(s, 300);    // 0 to 1200
-  // s->set_gain_ctrl(s, 1);      // 0 = disable , 1 = enable
-  // s->set_agc_gain(s, 0);       // 0 to 30
-  // s->set_gainceiling(s, (gainceiling_t)0); // 0 to 6
-  // s->set_vflip(s, 0);          // 0 = disable , 1 = enable (untuk membalik gambar vertikal)
-  // s->set_hmirror(s, 0);        // 0 = disable , 1 = enable (untuk membalik gambar horizontal)
+  // sensor_t * s = esp_camera_sensor_get();
+  // Atur parameter kamera jika perlu (lihat kode asli Anda)
+
+  // Inisialisasi Kartu SD
+  initSDCard();
 
   // Koneksi WiFi
   Serial.print("Menghubungkan ke WiFi: ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
   int retries = 0;
-  while (WiFi.status() != WL_CONNECTED && retries < 30) { // Coba selama 15 detik
+  while (WiFi.status() != WL_CONNECTED && retries < 30) {
     delay(500);
     Serial.print(".");
     retries++;
@@ -138,6 +123,44 @@ void loop() {
   delay(1); // Delay kecil untuk stabilitas
 }
 
+void initSDCard() {
+  Serial.println("Inisialisasi Kartu SD...");
+  // Gunakan mode 1-bit untuk kompatibilitas yang lebih luas.
+  // Jika Anda yakin slot SD Anda mendukung mode 4-bit dan pin D1-D3 terhubung dengan benar,
+  // Anda bisa mencoba `SD_MMC.begin("/sdcard", false)`
+  if (!SD_MMC.begin("/sdcard", true)) {
+    Serial.println("Inisialisasi Kartu SD GAGAL!");
+    Serial.println(" - Pastikan kartu terpasang dengan benar.");
+    Serial.println(" - Pastikan kartu diformat FAT32.");
+    Serial.println(" - Untuk beberapa board, pin D3 (GPIO13) mungkin digunakan oleh flash LED. Mode 1-bit lebih aman.");
+    return;
+  }
+
+  uint8_t cardType = SD_MMC.cardType();
+  if (cardType == CARD_NONE) {
+    Serial.println("Tidak ada Kartu SD yang terpasang.");
+    return;
+  }
+
+  Serial.print("Jenis Kartu SD: ");
+  if (cardType == CARD_MMC) {
+    Serial.println("MMC");
+  } else if (cardType == CARD_SD) {
+    Serial.println("SDSC");
+  } else if (cardType == CARD_SDHC) {
+    Serial.println("SDHC");
+  } else {
+    Serial.println("UNKNOWN");
+  }
+
+  uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
+  Serial.printf("Ukuran Kartu SD: %lluMB\n", cardSize);
+  Serial.printf("Total bytes: %lluMB\n", SD_MMC.totalBytes() / (1024 * 1024));
+  Serial.printf("Used bytes: %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024));
+  Serial.println("Inisialisasi Kartu SD BERHASIL.");
+}
+
+
 void startCameraServer() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/stream", HTTP_GET, handleStream);
@@ -146,15 +169,16 @@ void startCameraServer() {
   Serial.println("HTTP server dimulai.");
   Serial.print("Stream: http://"); Serial.print(WiFi.localIP()); Serial.println("/stream");
   Serial.print("Capture: http://"); Serial.print(WiFi.localIP()); Serial.println("/capture");
+  Serial.println("Untuk menyimpan foto ke SD Card, akses endpoint /capture.");
 }
 
 void handleRoot() {
   String html = "<html><head><title>ESP32-CAM Server</title></head><body>";
   html += "<h1>ESP32-CAM Live Server</h1>";
-  html += "<p><img src='/stream' width='640' height='480'></p>"; // Menampilkan stream langsung di root
-  html += "<p><a href='/capture' target='_blank'><button>Ambil Gambar</button></a></p>";
+  html += "<p><img src='/stream' width='640' height='480'></p>";
+  html += "<p><a href='/capture' target='_blank'><button>Ambil dan Simpan Gambar</button></a></p>"; // Tombol diupdate
   html += "<p>Buka <a href='/stream'>/stream</a> untuk MJPEG stream.</p>";
-  html += "<p>Buka <a href='/capture'>/capture</a> untuk mengambil satu gambar.</p>";
+  html += "<p>Buka <a href='/capture'>/capture</a> untuk mengambil satu gambar (juga disimpan ke SD jika SD Card terpasang).</p>";
   html += "</body></html>";
   server.send(200, "text/html", html);
 }
@@ -168,16 +192,14 @@ void handleStream() {
 
   String response = "HTTP/1.1 200 OK\r\n";
   response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
-  server.sendContent(response); // Kirim header MJPEG
+  server.sendContent(response);
 
   unsigned long lastFrameTime = 0;
-  // Targetkan sekitar 10-15 FPS untuk mengurangi beban dan panas. Sesuaikan delay_per_frame.
-  // 1000ms / 10 FPS = 100ms delay. 1000ms / 15 FPS = ~66ms delay.
-  const int delay_per_frame = 80; // (ms) -> sekitar 12.5 FPS. Naikkan jika panas.
+  const int delay_per_frame = 240; // (ms)
 
   while (client.connected()) {
     if (millis() - lastFrameTime < delay_per_frame) {
-      delay(1); // Tunggu sebentar jika belum waktunya kirim frame baru
+      delay(1);
       continue;
     }
     lastFrameTime = millis();
@@ -185,11 +207,6 @@ void handleStream() {
     camera_fb_t * fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Stream: Pengambilan frame kamera gagal");
-      // Jika sering terjadi, coba kurangi resolusi, jpeg_quality, atau naikkan fb_count jika memori cukup.
-      // Bisa juga karena catu daya kurang stabil.
-      // Kirim pesan error ke client agar tidak hang
-      // server.sendContent("--frame\r\nContent-Type: text/plain\r\n\r\nError: Frame capture failed\r\n");
-      // Untuk MJPEG, lebih baik skip frame yang error
       continue;
     }
 
@@ -203,7 +220,7 @@ void handleStream() {
 
     esp_camera_fb_return(fb);
 
-    if (!client.connected()) { // Cek lagi koneksi client setelah mengirim frame
+    if (!client.connected()) {
         Serial.println("Stream: Client disconnected after sending frame.");
         break;
     }
@@ -211,17 +228,39 @@ void handleStream() {
   Serial.println("Stream: Sesi streaming berakhir.");
 }
 
+void savePhoto(camera_fb_t * fb) {
+    if (SD_MMC.cardType() == CARD_NONE) {
+        Serial.println("Simpan Foto: Tidak ada SD Card, foto tidak disimpan.");
+        return;
+    }
+
+    fs::FS &fs = SD_MMC;
+    char path[32];
+    // Buat nama file unik, contoh: /photo_0001.jpg
+    sprintf(path, "/photo_%04d.jpg", image_count++);
+    
+    Serial.printf("Simpan Foto: Mencoba menyimpan ke %s\n", path);
+
+    File file = fs.open(path, FILE_WRITE);
+    if (!file) {
+        Serial.printf("Simpan Foto: Gagal membuka file %s untuk ditulis\n", path);
+        return;
+    } else {
+        size_t bytes_written = file.write(fb->buf, fb->len);
+        if (bytes_written == fb->len) {
+            Serial.printf("Simpan Foto: Gambar berhasil disimpan ke %s (%u bytes)\n", path, bytes_written);
+        } else {
+            Serial.printf("Simpan Foto: Gagal menulis semua data ke %s. Tertulis %u dari %u bytes.\n", path, bytes_written, fb->len);
+        }
+        file.close();
+    }
+}
+
 void handleCapture() {
   Serial.println("Capture: Permintaan diterima.");
   camera_fb_t * fb = NULL;
 
-  // Opsional: Jika ingin resolusi lebih tinggi khusus untuk capture.
-  // Pastikan ESP32-CAM kamu stabil dengan resolusi tinggi ini dan punya cukup memori.
-  // PENTING: Untuk debugging timeout, biarkan ini di-comment dulu untuk memastikan capture berjalan dengan resolusi streaming (VGA).
-  // sensor_t * s = esp_camera_sensor_get();
-  // Serial.println("Capture: Mencoba mengubah resolusi untuk capture...");
-  // s->set_framesize(s, FRAMESIZE_UXGA); // Contoh: 1600x1200. Bisa juga FRAMESIZE_SXGA (1280x1024) atau XGA (1024x768)
-  // delay(500); // Beri waktu kamera untuk menyesuaikan dengan resolusi baru
+  // (Kode untuk mengubah resolusi capture bisa ditambahkan di sini jika perlu, lihat kode asli Anda)
 
   Serial.println("Capture: Mencoba mengambil frame (esp_camera_fb_get)...");
   unsigned long preCaptureTime = millis();
@@ -232,36 +271,53 @@ void handleCapture() {
   if (!fb) {
     Serial.println("Capture: Pengambilan frame kamera GAGAL (fb adalah NULL).");
     server.send(500, "text/plain", "Gagal mengambil gambar dari kamera!");
-    // Jika resolusi diubah, kembalikan ke default di sini jika perlu
-    // sensor_t * s_after_fail = esp_camera_sensor_get();
-    // s_after_fail->set_framesize(s_after_fail, FRAMESIZE_VGA);
-    // Serial.println("Capture: Resolusi dikembalikan ke VGA setelah gagal ambil frame.");
+    // (Kode untuk mengembalikan resolusi jika diubah, lihat kode asli Anda)
     return;
   }
   Serial.printf("Capture: Frame berhasil diambil. Ukuran: %u bytes, Lebar: %u, Tinggi: %u\n", fb->len, fb->width, fb->height);
 
-  // Set header untuk memberitahu browser agar mengunduh file atau menampilkannya
-  server.sendHeader("Content-Disposition", "inline; filename=capture.jpg"); // 'inline' akan coba menampilkan, 'attachment' akan langsung download
+  WiFiClient client = server.client();
+  if (!client.connected()) {
+    Serial.println("Capture: Client disconnected before sending response.");
+    esp_camera_fb_return(fb);
+    return;
+  }
 
-  // Kirim header HTTP dan data gambar
-  server.setContentLength(fb->len);
-  server.send(200, "image/jpeg", ""); // Kirim status 200 OK, tipe konten image/jpeg, dan body kosong untuk header
-  Serial.println("Capture: Header HTTP terkirim. Mengirim data gambar...");
+  Serial.println("Capture: Membangun dan mengirim header HTTP...");
+  String responseHeaders = "HTTP/1.1 200 OK\r\n";
+  responseHeaders += "Content-Type: image/jpeg\r\n";
+  responseHeaders += "Content-Length: " + String(fb->len) + "\r\n";
+  responseHeaders += "Connection: close\r\n";
+  responseHeaders += "\r\n";
+  
+  // Send headers
+  size_t headers_sent_len = client.print(responseHeaders);
+  if (headers_sent_len != responseHeaders.length()) {
+    Serial.printf("Capture: Gagal mengirim semua header HTTP. Terkirim %u dari %u\n", headers_sent_len, responseHeaders.length());
+    esp_camera_fb_return(fb);
+    // Client connection might be closed by WebServer or might need explicit client.stop() here.
+    // For simplicity, let WebServer handle it upon handler return.
+    return;
+  }
+  Serial.println("Capture: Header HTTP terkirim. Mengirim data gambar ke client...");
   
   unsigned long preWriteTime = millis();
-  server.client().write((const char *)fb->buf, fb->len); // Kirim data gambar sebenarnya
+  size_t bytes_sent = client.write((const char *)fb->buf, fb->len);
   unsigned long postWriteTime = millis();
-  Serial.printf("Capture: Data gambar terkirim ke client dalam %lu ms.\n", postWriteTime - preWriteTime);
 
-  esp_camera_fb_return(fb); // Kembalikan frame buffer
+  if (bytes_sent == fb->len) {
+    Serial.printf("Capture: Data gambar (%u bytes) berhasil ditulis ke client dalam %lu ms.\n", bytes_sent, postWriteTime - preWriteTime);
+  } else {
+    Serial.printf("Capture: PERINGATAN! Hanya %u dari %u bytes yang ditulis ke client dalam %lu ms.\n", bytes_sent, fb->len, postWriteTime - preWriteTime);
+  }
+  // client.flush(); // Umumnya tidak diperlukan jika 'Connection: close' digunakan dan client.write bersifat blocking.
+                     // WebServer akan menutup koneksi.
+
+  // ---- SIMPAN FOTO KE SD CARD SETELAH MENGIRIM KE CLIENT ----
+  Serial.println("Capture: Mencoba menyimpan foto ke SD Card setelah mengirim ke client...");
+  savePhoto(fb); // Ini terjadi setelah client menerima data
+
+  esp_camera_fb_return(fb);
   Serial.println("Capture: Frame buffer dikembalikan (esp_camera_fb_return).");
-
-  // Opsional: Kembalikan resolusi ke setting awal untuk streaming jika diubah sebelumnya
-  // PENTING: Jika Anda mengubah resolusi di atas, uncomment bagian ini juga.
-  // sensor_t * s_after_capture = esp_camera_sensor_get();
-  // s_after_capture->set_framesize(s_after_capture, FRAMESIZE_VGA);
-  // delay(100);
-  // Serial.println("Capture: Resolusi dikembalikan ke VGA (resolusi streaming).");
-
-  Serial.println("Capture: Proses selesai, gambar berhasil dikirim ke client.");
+  Serial.println("Capture: Proses selesai, gambar berhasil dikirim ke client (dan dicoba simpan ke SD).");
 }

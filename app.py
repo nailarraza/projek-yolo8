@@ -244,8 +244,9 @@ def capture_and_detect():
     capture_url = f"{CAMERA_BASE_IP}{CAMERA_CAPTURE_PATH}"
     print(f"Capture & Detect: Mencoba mengambil gambar dari URL = {capture_url}")
 
+    request_headers = {'Connection': 'close'} # Tambahkan header ini
     try:
-        response = requests.get(capture_url, timeout=20) # Timeout 20 detik
+        response = requests.get(capture_url, headers=request_headers, timeout=10) # Timeout 300 detik (5 menit)
         response.raise_for_status() # Akan raise error jika status code 4xx atau 5xx
         # Validasi Content-Type dari respons ESP32-CAM
         content_type = response.headers.get('Content-Type')

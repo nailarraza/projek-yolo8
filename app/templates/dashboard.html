@@ -7,6 +7,7 @@
     <div class="row mb-3">
         <div class="col">
             <h2>Selamat Datang, {{ username }}!</h2>
+            <br>
             <p>Arahkan kamera ESP32-CAM ke oli motor yang ingin diuji.</p>
             <p class="text-muted small">Pastikan ESP32-CAM Anda menyala dan terhubung ke jaringan. IP ESP32-CAM: {{ esp32_cam_ip if esp32_cam_ip else 'Belum dikonfigurasi' }}</p>
         </div>
@@ -28,6 +29,7 @@
                 </div>
             </div>
         </div>
+        <br>
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header">
@@ -54,12 +56,12 @@
 {% block scripts_extra %}
 <script>
     // Opsional: script untuk refresh stream jika macet, atau cek status ESP32-CAM
-    // const cameraFeed = document.getElementById('cameraFeed');
-    // if (cameraFeed) {
-    //     cameraFeed.addEventListener('error', function() {
-    //         console.error('Error loading camera stream.');
-    //         // Anda bisa mencoba memuat ulang atau menampilkan pesan yang lebih detail
-    //     });
-    // }
+     const cameraFeed = document.getElementById('cameraFeed');
+     if (cameraFeed) {
+         cameraFeed.addEventListener('error', function() {
+             console.error('Error loading camera stream.');
+             // Anda bisa mencoba memuat ulang atau menampilkan pesan yang lebih detail
+         });
+     }
 </script>
 {% endblock %}

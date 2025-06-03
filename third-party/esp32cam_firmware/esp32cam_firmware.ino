@@ -14,13 +14,14 @@
 // Ganti model kamera jika perlu. Model yang umum adalah CAMERA_MODEL_AI_THINKER.
 // Untuk kamera 5MP (seperti OV5640), pinout mungkin perlu disesuaikan.
 // Pinout ini adalah untuk AI-THINKER. Jika Anda menggunakan board ESP32-CAM lain atau kamera OV5640 dengan pinout berbeda,
-// Anda HARUS menyesuaikan pin-pin ini.
-#define CAMERA_MODEL_AI_THINKER
+// Anda HARUS menyesuaikan pin-pin ini. Untuk ESP32-S3 dengan kamera terintegrasi, Anda WAJIB mendefinisikan pin sesuai board Anda.
+//#define CAMERA_MODEL_AI_THINKER
 //#define CAMERA_MODEL_M5STACK_PSRAM
 //#define CAMERA_MODEL_M5STACK_V2_PSRAM
 //#define CAMERA_MODEL_M5STACK_WIDE
 //#define CAMERA_MODEL_M5STACK_ESP32CAM
 //#define CAMERA_MODEL_WROVER_KIT
+#define CAMERA_MODEL_ESP32S3_OV5640_INTEGRATED // Aktifkan ini untuk ESP32-S3 dengan OV5640 terintegrasi
 
 #if defined(CAMERA_MODEL_AI_THINKER)
   #define PWDN_GPIO_NUM     32
@@ -41,6 +42,34 @@
   #define HREF_GPIO_NUM     23
   #define PCLK_GPIO_NUM     22
 #else
+  #error "Camera model not selected or defined"
+#endif
+
+// ================================================================================================
+//      PENTING: Pengaturan Pin Kamera untuk ESP32-S3 dengan OV5640 Terintegrasi
+// ================================================================================================
+// **ANDA WAJIB MENGGANTI PIN-PIN DI BAWAH INI SESUAI DENGAN KONEKSI FISIK PADA BOARD ESP32-S3 ANDA!**
+// Cek skematik board ESP32-S3 Anda untuk pinout kamera yang benar.
+// Pin-pin berikut adalah CONTOH dan kemungkinan besar TIDAK AKAN BEKERJA tanpa penyesuaian.
+#if defined(CAMERA_MODEL_ESP32S3_OV5640_INTEGRATED)
+  #define PWDN_GPIO_NUM     -1 // GPIO untuk Power Down camera (-1 jika tidak digunakan atau dikontrol otomatis)
+  #define RESET_GPIO_NUM    -1 // GPIO untuk Reset camera (-1 jika tidak digunakan atau terhubung ke RST ESP32)
+  #define XCLK_GPIO_NUM     15 // CONTOH: GPIO untuk XCLK camera (misal: GPIO15)
+  #define SIOD_GPIO_NUM     4  // CONTOH: GPIO untuk SCCB SDA (I2C Data) (misal: GPIO4)
+  #define SIOC_GPIO_NUM     5  // CONTOH: GPIO untuk SCCB SCL (I2C Clock) (misal: GPIO5)
+  
+  #define Y9_GPIO_NUM       16 // CONTOH: D7 (misal: GPIO16)
+  #define Y8_GPIO_NUM       17 // CONTOH: D6 (misal: GPIO17)
+  #define Y7_GPIO_NUM       18 // CONTOH: D5 (misal: GPIO18)
+  #define Y6_GPIO_NUM       12 // CONTOH: D4 (misal: GPIO12)
+  #define Y5_GPIO_NUM       11 // CONTOH: D3 (misal: GPIO11)
+  #define Y4_GPIO_NUM       10 // CONTOH: D2 (misal: GPIO10)
+  #define Y3_GPIO_NUM       9  // CONTOH: D1 (misal: GPIO9)
+  #define Y2_GPIO_NUM       8  // CONTOH: D0 (misal: GPIO8)
+  #define VSYNC_GPIO_NUM    6  // CONTOH: VSYNC (misal: GPIO6)
+  #define HREF_GPIO_NUM     7  // CONTOH: HREF (misal: GPIO7)
+  #define PCLK_GPIO_NUM     13 // CONTOH: PCLK (misal: GPIO13)
+#elif !defined(CAMERA_MODEL_AI_THINKER) // Tambahkan kondisi lain jika ada model lain
   #error "Camera model not selected"
 #endif
 
@@ -58,8 +87,8 @@ WebServer server(80); // Server akan berjalan di port 80 (HTTP)
 // WebServer streamServer(81); // Contoh jika ingin stream di port 81
 
 // LED Flash (jika ada dan ingin dikontrol)
-// Biasanya GPIO 4 untuk AI-Thinker
-#define FLASH_GPIO_NUM 4
+// Ganti dengan GPIO yang terhubung ke LED Flash pada board ESP32-S3 Anda.
+#define FLASH_GPIO_NUM -1 // Set ke -1 jika tidak ada LED flash atau tidak ingin digunakan. Contoh: 4 jika ada di GPIO4.
 bool flashState = LOW;
 
 // Fungsi untuk memulai server dan menangani permintaan
@@ -101,13 +130,14 @@ void setup() {
   // Jika PSRAM tersedia, gunakan untuk buffer yang lebih besar
   // Ini penting untuk resolusi tinggi
   if(psramFound()){
-    config.frame_size = FRAMESIZE_UXGA; // UXGA=1600x1200. Untuk OV5640 bisa lebih tinggi (QSXGA 2592x1944)
-                                        // Namun, UXGA sudah cukup besar dan mungkin lebih stabil untuk streaming.
+    Serial.println("PSRAM ditemukan! Menggunakan PSRAM untuk frame buffer.");
+    config.frame_size = FRAMESIZE_UXGA; // UXGA=1600x1200. Baik untuk streaming dengan OV5640.
+                                        // Untuk foto tunggal berkualitas tertinggi, Anda bisa coba FRAMESIZE_QSXGA (2592x1944),
+                                        // tapi mungkin terlalu berat untuk streaming kontinu.
                                         // Coba juga: FRAMESIZE_SXGA (1280x1024), FRAMESIZE_XGA (1024x768)
-                                        // Untuk 5MP (OV5640), Anda mungkin perlu bereksperimen dengan FRAMESIZE_QSXGA
-                                        // jika memori dan stabilitas memungkinkan. Mulai dengan UXGA atau SXGA dulu.
     config.jpeg_quality = 10; // 0-63, lebih rendah = kualitas lebih tinggi, tapi ukuran lebih besar. 10-12 adalah kompromi yang baik.
     config.fb_count = 2;      // Gunakan 2 frame buffer jika PSRAM ada, atau 1 jika tidak.
+                              // Dengan 8MB PSRAM pada N16R8, 2 sudah cukup. Anda bisa coba 3 jika perlu.
     config.fb_location = CAMERA_FB_IN_PSRAM; // Simpan frame buffer di PSRAM
   } else {
     config.frame_size = FRAMESIZE_SVGA; // SVGA=800x600. Jika tidak ada PSRAM, resolusi lebih rendah.
@@ -137,8 +167,10 @@ void setup() {
 
 
   // Inisialisasi LED Flash (jika ada)
-  pinMode(FLASH_GPIO_NUM, OUTPUT);
-  digitalWrite(FLASH_GPIO_NUM, flashState);
+  if (FLASH_GPIO_NUM != -1) {
+    pinMode(FLASH_GPIO_NUM, OUTPUT);
+    digitalWrite(FLASH_GPIO_NUM, flashState);
+  }
 
   // Koneksi ke WiFi
   WiFi.begin(ssid, password);
@@ -169,33 +201,44 @@ void loop() {
 // Fungsi untuk memulai server dan mendefinisikan handler
 void startCameraServer(){
   server.on("/", HTTP_GET, [](){
-    // Halaman index sederhana
-    server.send(200, "text/html", 
-      "<!DOCTYPE html><html><head><title>ESP32-CAM Server</title></head><body>"
-      "<h1>Server Kamera ESP32-CAM</h1>"
-      "<p><a href='/capture'>Ambil Foto (Capture)</a></p>"
-      "<p><a href='/stream'>Mulai Streaming Video</a></p>"
-      "<p>Status LED Flash: <span id='flashStatus'>MATI</span> <button onclick='toggleFlash()'>Toggle Flash</button></p>"
-      "<img src='/stream' width='640' height='480'>" // Embed stream langsung
-      "<script>"
-      "function toggleFlash(){fetch('/toggle-flash').then(res => res.text()).then(data => {document.getElementById('flashStatus').innerText = data;});}"
-      "setInterval(function(){fetch('/flash-status').then(res => res.text()).then(data => {document.getElementById('flashStatus').innerText = data;});},1000);"
-      "</script>"
-      "</body></html>");
+    String html = "<!DOCTYPE html><html><head><title>ESP32-S3 Kamera Server</title>";
+    html += "<style>body{font-family: Arial, Helvetica, sans-serif; text-align: center;}</style>";
+    html += "</head><body><h1>ESP32-S3 Kamera Server</h1>";
+    html += "<p><a href='/capture'><button>Ambil Foto (Capture)</button></a></p>";
+    html += "<p><a href='/stream'><button>Mulai Streaming Video</button></a></p>";
+    
+    if (FLASH_GPIO_NUM != -1) {
+      html += "<p>Status LED Flash: <span id='flashStatus'>MATI</span> <button onclick='toggleFlash()'>Toggle Flash</button></p>";
+    }
+    
+    html += "<h3>Live Stream:</h3>";
+    html += "<img src='/stream' width='640' height='480' style='border: 1px solid black;'>"; // Embed stream langsung
+    
+    if (FLASH_GPIO_NUM != -1) {
+      html += "<script>";
+      html += "function toggleFlash(){fetch('/toggle-flash').then(res => res.text()).then(data => {document.getElementById('flashStatus').innerText = data;});}";
+      html += "function updateFlashStatus(){fetch('/flash-status').then(res => res.text()).then(data => {document.getElementById('flashStatus').innerText = data;});}";
+      html += "updateFlashStatus(); setInterval(updateFlashStatus, 2000);"; // Update status flash periodik
+      html += "</script>";
+    }
+    html += "</body></html>";
+    server.send(200, "text/html", html);
   });
 
   server.on("/capture", HTTP_GET, handleJpg);
   server.on("/stream", HTTP_GET, handleJpgStream);
   
   // Endpoint untuk mengontrol flash
-  server.on("/toggle-flash", HTTP_GET, [](){
-    flashState = !flashState;
-    digitalWrite(FLASH_GPIO_NUM, flashState);
-    server.send(200, "text/plain", flashState ? "NYALA" : "MATI");
-  });
-  server.on("/flash-status", HTTP_GET, [](){
-    server.send(200, "text/plain", flashState ? "NYALA" : "MATI");
-  });
+  if (FLASH_GPIO_NUM != -1) {
+    server.on("/toggle-flash", HTTP_GET, [](){
+      flashState = !flashState;
+      digitalWrite(FLASH_GPIO_NUM, flashState);
+      server.send(200, "text/plain", flashState ? "NYALA" : "MATI");
+    });
+    server.on("/flash-status", HTTP_GET, [](){
+      server.send(200, "text/plain", flashState ? "NYALA" : "MATI");
+    });
+  }
 
   server.onNotFound(handleNotFound);
   server.begin();
@@ -203,6 +246,9 @@ void startCameraServer(){
 
 // Handler untuk mengambil satu frame foto (JPEG)
 void handleJpg(){
+  if (!server.client() || !server.client().connected()) {
+    return; // Client sudah disconnect
+  }
   WiFiClient client = server.client();
 
   camera_fb_t * fb = NULL;
@@ -212,45 +258,36 @@ void handleJpg(){
   fb = esp_camera_fb_get();
   if (!fb) {
     Serial.println("Pengambilan frame kamera gagal");
-    server.send(500, "text/plain", "Gagal mengambil frame dari kamera.");
+    if (client.connected()) { // Hanya kirim response jika client masih ada
+        server.send(500, "text/plain", "Gagal mengambil frame dari kamera.");
+    }
     return;
   }
   Serial.printf("Frame diambil! Format: %d, Ukuran: %d, Lebar: %d, Tinggi: %d\n", fb->format, fb->len, fb->width, fb->height);
 
-
   // Kirim header HTTP
-  if(res == ESP_OK){
-    res = client.write("HTTP/1.1 200 OK\r\n") ? ESP_OK : ESP_FAIL;
+  bool headers_sent_ok = true;
+  if (headers_sent_ok) headers_sent_ok = (client.print("HTTP/1.1 200 OK\r\n") > 0);
+  if (headers_sent_ok) headers_sent_ok = (client.print("Content-Type: image/jpeg\r\n") > 0);
+  if (headers_sent_ok) headers_sent_ok = (client.print("Content-Disposition: inline; filename=capture.jpg\r\n") > 0);
+  if (headers_sent_ok) headers_sent_ok = (client.print("Content-Length: ") > 0);
+  if (headers_sent_ok) headers_sent_ok = (client.print(fb->len) > 0);
+  if (headers_sent_ok) headers_sent_ok = (client.print("\r\n\r\n") > 0);
+
+  if (!headers_sent_ok) {
+    Serial.println("Gagal mengirim header HTTP untuk capture.");
+    esp_camera_fb_return(fb);
+    return;
   }
-  if(res == ESP_OK){
-    res = client.write("Content-Type: image/jpeg\r\n") ? ESP_OK : ESP_FAIL;
-  }
-  if(res == ESP_OK){
-    res = client.write("Content-Disposition: inline; filename=capture.jpg\r\n") ? ESP_OK : ESP_FAIL;
-  }
-  if(res == ESP_OK){
-    char len_str[16];
-    sprintf(len_str, "%d", fb->len);
-    res = client.write("Content-Length: ") ? ESP_OK : ESP_FAIL;
-    res = client.write(len_str) ? ESP_OK : ESP_FAIL;
-    res = client.write("\r\n") ? ESP_OK : ESP_FAIL;
-  }
-  if(res == ESP_OK){
-    res = client.write("\r\n") ? ESP_OK : ESP_FAIL;
-  }
-  
+
   // Kirim data gambar JPEG
-  if(res == ESP_OK){
-    res = client.write(fb->buf, fb->len) ? ESP_OK : ESP_FAIL;
+  if(client.write(fb->buf, fb->len) != fb->len){
+    Serial.println("Gagal mengirim data gambar JPEG untuk capture.");
+    // Header mungkin sudah terkirim sebagian, jadi tidak bisa send 500
   }
 
   // Kembalikan frame buffer ke kamera agar bisa digunakan lagi
   esp_camera_fb_return(fb);
-
-  if(res != ESP_OK){
-    Serial.println("Gagal mengirim response gambar.");
-    // Tidak bisa send 500 di sini karena header mungkin sudah terkirim sebagian
-  }
   // Koneksi akan ditutup oleh client atau WebServer class
 }
 
@@ -258,16 +295,18 @@ void handleJpg(){
 // Handler untuk streaming video (MJPEG)
 void handleJpgStream(){
   WiFiClient client = server.client();
-  String response = "HTTP/1.1 200 OK\r\n";
-  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n";
-  response += "\r\n";
+  if (!client || !client.connected()) {
+    return;
+  }
   
   // Kirim header awal untuk stream MJPEG
-  if (client.write((const uint8_t*)response.c_str(), response.length()) != response.length()) {
+  if (client.print("HTTP/1.1 200 OK\r\n"
+                   "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n"
+                   "\r\n") == 0) {
     Serial.println("Gagal mengirim header stream");
     return;
   }
-  Serial.println("Memulai stream MJPEG...");
+  Serial.println("Memulai stream MJPEG ke client.");
 
   // Loop untuk mengirim frame secara berkelanjutan
   while(client.connected()){ // Terus kirim selama client terhubung
@@ -280,31 +319,30 @@ void handleJpgStream(){
       Serial.println("Pengambilan frame kamera gagal untuk stream");
       // Mungkin kirim pesan error sebagai bagian dari stream atau skip frame
       // Untuk kesederhanaan, kita skip jika gagal
-      delay(100); // Beri jeda sedikit sebelum mencoba lagi
+      delay(200); // Beri jeda lebih lama jika gagal ambil frame
       continue;
     }
 
     // Kirim boundary dan header untuk frame JPEG ini
-    response = "--frame\r\n";
-    response += "Content-Type: image/jpeg\r\n";
-    response += "Content-Length: " + String(fb->len) + "\r\n";
-    response += "\r\n";
-    
-    if (client.write((const uint8_t*)response.c_str(), response.length()) != response.length()) {
+    if (!client.connected()) { // Cek lagi sebelum kirim
+      esp_camera_fb_return(fb);
+      break;
+    }
+    if (client.printf("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len) == 0) {
       Serial.println("Gagal mengirim header frame JPEG");
       esp_camera_fb_return(fb); // Jangan lupa return buffer
       break; // Keluar dari loop jika client disconnect atau error
     }
 
     // Kirim data gambar JPEG
-    if (client.write(fb->buf, fb->len) != fb->len) {
+    if (client.write(fb->buf, fb->len) != (size_t)fb->len) {
       Serial.println("Gagal mengirim data frame JPEG");
       esp_camera_fb_return(fb);
       break; 
     }
     
-    // Kirim CRLF setelah data gambar
-     if (client.write((const uint8_t*)"\r\n", 2) != 2) {
+    // Kirim CRLF setelah data gambar (penting untuk beberapa browser/client)
+     if (client.print("\r\n") == 0) {
       Serial.println("Gagal mengirim CRLF setelah frame");
       esp_camera_fb_return(fb);
       break;
@@ -319,8 +357,9 @@ void handleJpgStream(){
       break;
     }
     
-    delay(10); // Sedikit delay untuk stabilitas, bisa disesuaikan
-               // Terlalu kecil bisa membebani ESP32, terlalu besar membuat stream patah-patah
+    delay(66); // Target ~15 FPS (1000ms / 15fps = 66.6ms). Sesuaikan sesuai kebutuhan.
+               // Untuk UXGA, 10-15 FPS adalah target yang realistis dan tidak terlalu membebani.
+               // delay(100) untuk ~10 FPS.
   }
   Serial.println("Stream MJPEG dihentikan.");
 }

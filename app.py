@@ -9,6 +9,9 @@ from datetime import datetime
 import google.generativeai as genai
 from dotenv import load_dotenv # Untuk memuat variabel dari .env
 import requests # <-- Tambahkan ini untuk mengambil gambar dari ESP32-CAM
+from ultralytics import YOLO # Pastikan ultralytics terinstal
+# from PIL import Image # Opsional: Uncomment jika ingin validasi gambar lebih lanjut dengan Pillow
+
 
 # Inisialisasi Aplikasi Flask
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
@@ -31,6 +34,14 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24).hex()) # Ambil
 app.config['UPLOAD_FOLDER'] = 'app/static/uploads' # Tambahkan konfigurasi folder upload
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True) # Buat folder jika belum ada
 
+# Muat Model YOLOv8 sekali saat aplikasi dimulai
+MODEL_PATH = os.getenv('YOLO_MODEL_PATH', os.path.join('models_yolo', 'best.pt'))
+try:
+    model_yolo = YOLO(MODEL_PATH)
+    print(f"Model YOLO berhasil dimuat dari {MODEL_PATH}")
+except Exception as e:
+    print(f"Error saat memuat model YOLO: {e}")
+    model_yolo = None
 
 # Konfigurasi Database MySQL
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -38,11 +49,16 @@ DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "db_projek_yolo8") # Di README namanya projek_yolo8_db
 
-# Dapatkan alamat IP ESP32-CAM dari environment variable
-ESP32_CAM_BASE_IP = os.getenv("ESP32_CAM_IP")
-# Verifikasi endpoint ini dari kode Arduino (.ino) Anda
-ESP32_CAM_STREAM_PATH = "/stream" # Contoh, bisa berbeda
-ESP32_CAM_CAPTURE_PATH = "/capture" # Contoh, bisa berbeda
+# Konfigurasi Kamera (ESP32-CAM atau DroidCam)
+# Nama variabel dipertahankan sebagai ESP32_CAM_* untuk konsistensi dengan kode yang ada,
+# namun konfigurasi di .env dapat diubah untuk DroidCam atau sumber kamera IP lainnya.
+CAMERA_BASE_IP = os.getenv("ESP32_CAM_IP") # Atau bisa dinamai ulang menjadi CAMERA_BASE_IP jika diinginkan
+CAMERA_STREAM_PATH = os.getenv("ESP32_CAM_STREAM_PATH", "/stream")
+CAMERA_CAPTURE_PATH = os.getenv("ESP32_CAM_CAPTURE_PATH", "/capture")
+
+print(f"Konfigurasi Kamera: IP Dasar = {CAMERA_BASE_IP}, Path Stream = {CAMERA_STREAM_PATH}, Path Capture = {CAMERA_CAPTURE_PATH}")
+if not CAMERA_BASE_IP:
+    print("PERINGATAN: ESP32_CAM_IP (atau IP Kamera) tidak diatur di .env. Fitur kamera tidak akan berfungsi.")
 
 
 @app.template_filter('date')
@@ -172,30 +188,62 @@ def login():
 @login_required
 def dashboard():
     esp32_stream_url = None
-    if ESP32_CAM_BASE_IP:
-        esp32_stream_url = f"{ESP32_CAM_BASE_IP}{ESP32_CAM_STREAM_PATH}"
+    if CAMERA_BASE_IP:
+        esp32_stream_url = f"{CAMERA_BASE_IP}{CAMERA_STREAM_PATH}"
+        print(f"Dashboard: URL Stream Kamera = {esp32_stream_url}")
     else:
-        flash("Alamat IP ESP32-CAM belum dikonfigurasi di file .env.", "warning")
+        flash("Alamat IP Kamera belum dikonfigurasi di file .env.", "warning")
 
     return render_template('dashboard.html', 
                            title="Dashboard", 
                            username=session.get('username'),
-                           esp32_cam_ip=ESP32_CAM_BASE_IP, # Untuk ditampilkan di teks
+                           esp32_cam_ip=CAMERA_BASE_IP, # Untuk ditampilkan di teks
                            esp32_stream_url=esp32_stream_url) # Untuk <img> src
+
+def get_gemini_description(image_path_for_gemini, detected_class_name):
+    """
+    Fungsi untuk mendapatkan deskripsi dari Google Gemini API.
+    """
+    if not GEMINI_API_KEY or not genai:
+        print("Gemini API tidak dikonfigurasi. Mengembalikan deskripsi default.")
+        return "Deskripsi generatif tidak tersedia saat ini."
+    try:
+        model_gemini = genai.GenerativeModel('gemini-pro-vision') # atau model lain yang sesuai
+        image_input = genai.upload_file(image_path_for_gemini) # Pastikan path ini bisa diakses
+        prompt = f"Jelaskan kondisi oli berdasarkan gambar ini. Hasil deteksi menunjukkan bahwa ini adalah '{detected_class_name}'. Berikan penjelasan singkat dan saran jika ada."
+        response = model_gemini.generate_content([prompt, image_input])
+        return response.text
+    except Exception as e:
+        print(f"Error saat menghubungi Gemini API: {e}")
+        # Cek apakah error karena file tidak ditemukan atau masalah API
+        if "google.api_core.exceptions.NotFound: 404" in str(e) and "Requested entity was not found" in str(e):
+            print(f"Pastikan file gambar ada di path: {image_path_for_gemini} dan dapat diakses oleh Gemini API.")
+        return f"Gagal menghasilkan deskripsi dari Gemini: {e}"
 
 @app.route('/capture_and_detect', methods=['POST'])
 @login_required
 def capture_and_detect():
-    if not ESP32_CAM_BASE_IP:
-        flash("Alamat IP ESP32-CAM belum dikonfigurasi. Tidak dapat mengambil gambar.", "danger")
+    if not CAMERA_BASE_IP:
+        flash("Alamat IP Kamera belum dikonfigurasi. Tidak dapat mengambil gambar.", "danger")
         return redirect(url_for('dashboard'))
 
-    capture_url = f"{ESP32_CAM_BASE_IP}{ESP32_CAM_CAPTURE_PATH}"
+    if not model_yolo:
+        flash("Model YOLO tidak berhasil dimuat. Fitur deteksi tidak tersedia.", "danger")
+        return redirect(url_for('dashboard'))
+
+    capture_url = f"{CAMERA_BASE_IP}{CAMERA_CAPTURE_PATH}"
+    print(f"Capture & Detect: Mencoba mengambil gambar dari URL = {capture_url}")
 
     try:
         response = requests.get(capture_url, timeout=10) # Timeout 10 detik
         response.raise_for_status() # Akan raise error jika status code 4xx atau 5xx
-
+        # Validasi Content-Type dari respons ESP32-CAM
+        content_type = response.headers.get('Content-Type')
+        if not content_type or not content_type.startswith('image/'):
+            error_message = f"Konten yang diterima dari ESP32-CAM bukan gambar (Content-Type: {content_type}). Pastikan URL capture ({capture_url}) sudah benar dan ESP32-CAM mengirimkan gambar."
+            flash(error_message, "danger")
+            print(f"Error: {error_message}. Response text (first 500 chars): {response.text[:500]}")
+            return redirect(url_for('dashboard'))
         # Simpan gambar yang ditangkap
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         image_name = f"capture_{session['user_id']}_{timestamp_str}.jpg"
@@ -206,46 +254,81 @@ def capture_and_detect():
         with open(absolute_image_path, 'wb') as f:
             f.write(response.content)
 
-        flash(f"Gambar berhasil diambil: {image_name}", "success")
+        # Opsional: Validasi lebih lanjut menggunakan Pillow bahwa file yang disimpan adalah gambar valid
+        # try:
+        #     img = Image.open(absolute_image_path)
+        #     img.verify() # Memverifikasi header gambar
+        #     # Untuk beberapa format, file perlu dibuka kembali setelah verify
+        #     # img = Image.open(absolute_image_path)
+        #     # img.load() # Memuat data gambar sepenuhnya
+        # except Exception as img_err:
+        #     flash(f"File gambar yang disimpan ({image_name}) tampaknya tidak valid atau rusak: {img_err}", "danger")
+        #     print(f"Error saat memverifikasi file gambar {absolute_image_path}: {img_err}")
+        #     return redirect(url_for('dashboard'))
 
-        # ---- MULAI LOGIKA DETEKSI YOLOv8 DI SINI ----
-        # 1. Muat model YOLOv8 Anda (lihat README)
-        #    model_path = os.path.join('models_yolo', 'nama_model_anda.pt') 
-        #    model = YOLO(model_path) 
-        # 2. Lakukan prediksi pada `absolute_image_path`
-        #    results = model(absolute_image_path)
-        # 3. Proses `results` untuk mendapatkan kelas, confidence, bounding box
-        #    detected_class = "Oli Baik" # Contoh
-        #    confidence_score = 0.95 # Contoh
-        # 4. Simpan hasil deteksi ke database (tabel `detections`)
-        #    conn = get_db_connection()
-        #    cursor = conn.cursor()
-        #    sql = "INSERT INTO detections (user_id, image_name, image_path, detection_class, confidence_score, generative_description) VALUES (%s, %s, %s, %s, %s, %s)"
-        #    # generative_description bisa didapatkan dari Gemini API
-        #    val = (session['user_id'], image_name, relative_image_path, detected_class, confidence_score, "Deskripsi dari Gemini...")
-        #    cursor.execute(sql, val)
-        #    conn.commit()
-        #    detection_id = cursor.lastrowid
-        #    cursor.close()
-        #    conn.close()
-        # 5. Redirect ke halaman hasil dengan membawa ID deteksi
-        #    return redirect(url_for('hasil', detection_id=detection_id))
-        # ---- AKHIR LOGIKA DETEKSI ----
+        flash(f"Gambar berhasil diambil dan disimpan sebagai: {image_name}", "success")
 
-        # Placeholder karena deteksi belum diimplementasikan sepenuhnya:
-        flash('Gambar berhasil ditangkap, tetapi fitur deteksi YOLOv8 belum diimplementasikan sepenuhnya di rute ini.', 'info')
-        # Untuk sementara, tampilkan gambar yang ditangkap di halaman hasil (dummy)
-        # Anda perlu membuat objek `detection` dummy atau mengambil dari DB jika sudah disimpan
-        dummy_detection_data = {
-            'id': 0, # Ganti dengan ID dari database jika sudah ada
-            'timestamp': datetime.now(),
-            'image_name': image_name,
-            'image_path': relative_image_path, # path relatif dari static
-            'detection_class': "Belum Terdeteksi",
-            'confidence_score': 0.0,
-            'generative_description': 'Silakan implementasikan deteksi YOLOv8 dan integrasi Gemini API.'
-        }
-        return render_template('hasil.html', title="Hasil Deteksi (Placeholder)", detection=dummy_detection_data, username=session.get('username'))
+        # ---- LOGIKA DETEKSI YOLOv8 ----
+        results = model_yolo(absolute_image_path) # Gunakan model yang sudah dimuat
+
+        detected_class_name = "Tidak Terdeteksi"
+        confidence_score = 0.0
+        generative_desc = "Tidak ada objek yang terdeteksi atau model tidak dapat mengklasifikasikan."
+
+        if results and results[0].boxes: # results adalah list, ambil elemen pertama
+            # Asumsikan deteksi dengan confidence tertinggi adalah yang paling relevan
+            # Atau, jika Anda memiliki logika khusus untuk memilih deteksi
+            top_detection = results[0].boxes[0] # Ambil deteksi pertama (biasanya yang paling confident)
+            
+            # Dapatkan nama kelas dari model.names
+            # results[0].names adalah dictionary seperti {0: 'Oli Baik', 1: 'Oli Buruk'}
+            class_id = int(top_detection.cls[0].item()) # .cls adalah tensor, ambil itemnya
+            detected_class_name = model_yolo.names[class_id] if model_yolo.names else f"Kelas {class_id}"
+            
+            confidence_score = float(top_detection.conf[0].item()) # .conf adalah tensor, ambil itemnya
+            
+            flash(f"Deteksi: {detected_class_name} dengan confidence: {confidence_score:.2f}", "info")
+
+            # Dapatkan deskripsi dari Gemini API jika API key tersedia
+            if GEMINI_API_KEY:
+                # Untuk Gemini, path file harus absolut dan dapat diakses oleh proses yang menjalankan Gemini API.
+                # Jika Gemini API dijalankan di cloud, Anda mungkin perlu mengunggah gambar ke cloud storage
+                # atau memastikan path lokal dapat diakses. Untuk penggunaan lokal:
+                generative_desc = get_gemini_description(absolute_image_path, detected_class_name)
+            else:
+                generative_desc = "Fitur deskripsi Gemini tidak aktif. API Key tidak ditemukan."
+        else:
+            flash("Tidak ada objek yang terdeteksi oleh YOLO.", "warning")
+
+        # Simpan hasil deteksi ke database
+        db_conn = None
+        cursor = None
+        try:
+            db_conn = get_db_connection()
+            if not db_conn:
+                # Pesan flash sudah ditangani oleh get_db_connection
+                return redirect(url_for('dashboard'))
+            # Jika koneksi gagal, kita sudah flash message di get_db_connection
+            # Mungkin redirect ke dashboard atau halaman error khusus
+            
+            cursor = db_conn.cursor()
+            sql = "INSERT INTO detections (user_id, image_name, image_path, detection_class, confidence_score, generative_description, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+            current_timestamp = datetime.now()
+            val = (session['user_id'], image_name, relative_image_path, detected_class_name, confidence_score, generative_desc, current_timestamp)
+            cursor.execute(sql, val)
+            db_conn.commit()
+            detection_id = cursor.lastrowid
+            return redirect(url_for('hasil', detection_id=detection_id))
+        except mysql.connector.Error as err:
+            flash(f"Gagal menyimpan hasil deteksi ke database: {err}", "danger")
+            if db_conn and db_conn.is_connected(): 
+                db_conn.rollback()
+            return redirect(url_for('dashboard'))
+        finally:
+            if cursor: 
+                cursor.close()
+            if db_conn and db_conn.is_connected():
+                db_conn.close()
 
     except requests.exceptions.RequestException as e:
         flash(f"Gagal mengambil gambar dari ESP32-CAM: {e}", "danger")
@@ -254,40 +337,37 @@ def capture_and_detect():
         flash(f"Terjadi kesalahan: {e}", "danger")
         return redirect(url_for('dashboard'))
 
-
-@app.route('/hasil') # Bisa juga '/hasil/<int:detection_id>' jika mengambil dari DB
+@app.route('/hasil/<int:detection_id>')
 @login_required
-def hasil():
-    # Jika menggunakan detection_id dari URL:
-    # detection_id = request.args.get('detection_id')
-    # Ambil data deteksi dari database berdasarkan detection_id dan user_id
-    # detection_data = get_detection_from_db(detection_id, session['user_id'])
-    # Jika tidak ada, tampilkan pesan error atau redirect
+def hasil(detection_id):
+    detection_data = None
+    conn = get_db_connection()
+    if conn:
+        cursor = None
+        try:
+            cursor = conn.cursor(dictionary=True)
+            # Pastikan hanya user yang bersangkutan yang bisa melihat hasilnya
+            cursor.execute("SELECT * FROM detections WHERE id = %s AND user_id = %s", (detection_id, session['user_id']))
+            detection_data = cursor.fetchone()
+        except mysql.connector.Error as err:
+            flash(f"Error saat mengambil data deteksi: {err}", "danger")
+        finally:
+            if cursor: cursor.close()
+            if conn.is_connected(): conn.close()
 
-    # Untuk contoh ini, kita asumsikan data deteksi mungkin tidak ada jika diakses langsung
-    # atau jika '/capture_and_detect' belum menyiapkan datanya.
-    # Pada implementasi nyata, halaman ini akan menerima `detection_id`
-    # dan memuat data dari database.
+    if not detection_data:
+        flash("Data deteksi tidak ditemukan atau Anda tidak memiliki akses.", "warning")
+        return redirect(url_for('dashboard'))
 
-    # Placeholder data jika tidak ada data deteksi yang dikirim dari rute sebelumnya
-    # Ini hanya akan ditampilkan jika pengguna menavigasi ke /hasil secara langsung
-    # tanpa melalui proses deteksi.
-    placeholder_detection = {
-        'timestamp': datetime.now(),
-        'image_name': 'N/A',
-        'image_path': None, # Tidak ada gambar jika diakses langsung
-        'detection_class': 'N/A',
-        'confidence_score': None,
-        'generative_description': 'Tidak ada data deteksi. Silakan lakukan deteksi dari dashboard.'
-    }
-    # Cek apakah ada data deteksi yang dikirim melalui argumen (misalnya dari contoh di capture_and_detect)
-    # Ini bukan cara yang ideal untuk passing data antar request, lebih baik pakai ID dan DB.
-    detection_arg = request.args.get('detection') 
-    if detection_arg: # Ini hanya untuk demo, sebaiknya ambil dari DB
-         # Logika untuk mengubah string kembali ke dictionary jika perlu, atau idealnya ambil dari DB via ID
-        pass
+    # Pastikan 'timestamp' adalah objek datetime jika akan diformat di template
+    if detection_data and isinstance(detection_data.get('timestamp'), str):
+        try:
+            detection_data['timestamp'] = datetime.fromisoformat(detection_data['timestamp'])
+        except ValueError:
+            # Handle jika format string tidak sesuai, atau biarkan sebagai string
+            pass 
 
-    return render_template('hasil.html', title="Hasil Deteksi", username=session.get('username'), detection=placeholder_detection)
+    return render_template('hasil.html', title="Hasil Deteksi", username=session.get('username'), detection=detection_data)
 
 
 @app.route('/histori')
@@ -295,15 +375,20 @@ def hasil():
 def histori():
     detections_history = []
     conn = get_db_connection()
+    cursor = None
     if conn:
-        cursor = conn.cursor(dictionary=True)
-        # Ambil hanya histori milik user yang sedang login, urutkan dari terbaru
-        cursor.execute("SELECT * FROM detections WHERE user_id = %s ORDER BY timestamp DESC", (session['user_id'],))
-        detections_history = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            # Ambil hanya histori milik user yang sedang login, urutkan dari terbaru
+            cursor.execute("SELECT * FROM detections WHERE user_id = %s ORDER BY timestamp DESC", (session['user_id'],))
+            detections_history = cursor.fetchall()
+        except mysql.connector.Error as err:
+            flash(f"Error saat memuat histori: {err}", "danger")
+        finally:
+            if cursor: cursor.close()
+            if conn.is_connected(): conn.close()
     else:
-        flash("Tidak dapat memuat histori, masalah koneksi database.", "warning")
+        flash("Tidak dapat memuat histori, masalah koneksi database.", "warning") # Pesan ini mungkin sudah di-flash oleh get_db_connection
 
     return render_template('histori.html', title="Histori Deteksi", username=session.get('username'), detections=detections_history)
 

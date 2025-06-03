@@ -75,8 +75,12 @@ void setup() {
   // Mulai dengan resolusi rendah untuk streaming (misalnya FRAMESIZE_VGA).
   config.frame_size = FRAMESIZE_VGA; // Resolusi awal untuk streaming
   config.jpeg_quality = 12; // Kualitas JPEG (0-63), semakin rendah semakin cepat tapi kualitas menurun
-  config.fb_count = 1;      // Gunakan 1 frame buffer untuk menghemat memori. Jika 2, lebih smooth tapi butuh lebih banyak memori.
-                            // Jika sering error "fb_get(): Failed to get the frame on time!", coba naikkan jadi 2 jika memori cukup.
+  config.fb_count = 2;      // Gunakan 2 frame buffer untuk streaming yang lebih lancar jika PSRAM tersedia.
+                            // Ini membantu mengurangi error "fb_get(): Failed to get the frame on time!".
+                            // Jika PSRAM tidak ada atau terbatas, kembali ke 1.
+  config.fb_location = CAMERA_FB_IN_PSRAM; // Alokasikan frame buffer di PSRAM
+  config.grab_mode = CAMERA_GRAB_LATEST;   // Ambil frame terbaru, buang yang lama jika buffer penuh.
+                                           // Baik untuk streaming agar latensi rendah.
 
   // Inisialisasi Kamera
   esp_err_t err = esp_camera_init(&config);
@@ -208,20 +212,33 @@ void handleStream() {
 }
 
 void handleCapture() {
+  Serial.println("Capture: Permintaan diterima.");
   camera_fb_t * fb = NULL;
 
   // Opsional: Jika ingin resolusi lebih tinggi khusus untuk capture.
   // Pastikan ESP32-CAM kamu stabil dengan resolusi tinggi ini dan punya cukup memori.
+  // PENTING: Untuk debugging timeout, biarkan ini di-comment dulu untuk memastikan capture berjalan dengan resolusi streaming (VGA).
   // sensor_t * s = esp_camera_sensor_get();
+  // Serial.println("Capture: Mencoba mengubah resolusi untuk capture...");
   // s->set_framesize(s, FRAMESIZE_UXGA); // Contoh: 1600x1200. Bisa juga FRAMESIZE_SXGA (1280x1024) atau XGA (1024x768)
   // delay(500); // Beri waktu kamera untuk menyesuaikan dengan resolusi baru
 
+  Serial.println("Capture: Mencoba mengambil frame (esp_camera_fb_get)...");
+  unsigned long preCaptureTime = millis();
   fb = esp_camera_fb_get();
+  unsigned long postCaptureTime = millis();
+  Serial.printf("Capture: esp_camera_fb_get selesai dalam %lu ms.\n", postCaptureTime - preCaptureTime);
+
   if (!fb) {
-    Serial.println("Capture: Pengambilan frame kamera gagal");
+    Serial.println("Capture: Pengambilan frame kamera GAGAL (fb adalah NULL).");
     server.send(500, "text/plain", "Gagal mengambil gambar dari kamera!");
+    // Jika resolusi diubah, kembalikan ke default di sini jika perlu
+    // sensor_t * s_after_fail = esp_camera_sensor_get();
+    // s_after_fail->set_framesize(s_after_fail, FRAMESIZE_VGA);
+    // Serial.println("Capture: Resolusi dikembalikan ke VGA setelah gagal ambil frame.");
     return;
   }
+  Serial.printf("Capture: Frame berhasil diambil. Ukuran: %u bytes, Lebar: %u, Tinggi: %u\n", fb->len, fb->width, fb->height);
 
   // Set header untuk memberitahu browser agar mengunduh file atau menampilkannya
   server.sendHeader("Content-Disposition", "inline; filename=capture.jpg"); // 'inline' akan coba menampilkan, 'attachment' akan langsung download
@@ -229,14 +246,22 @@ void handleCapture() {
   // Kirim header HTTP dan data gambar
   server.setContentLength(fb->len);
   server.send(200, "image/jpeg", ""); // Kirim status 200 OK, tipe konten image/jpeg, dan body kosong untuk header
+  Serial.println("Capture: Header HTTP terkirim. Mengirim data gambar...");
+  
+  unsigned long preWriteTime = millis();
   server.client().write((const char *)fb->buf, fb->len); // Kirim data gambar sebenarnya
+  unsigned long postWriteTime = millis();
+  Serial.printf("Capture: Data gambar terkirim ke client dalam %lu ms.\n", postWriteTime - preWriteTime);
 
   esp_camera_fb_return(fb); // Kembalikan frame buffer
+  Serial.println("Capture: Frame buffer dikembalikan (esp_camera_fb_return).");
 
   // Opsional: Kembalikan resolusi ke setting awal untuk streaming jika diubah sebelumnya
+  // PENTING: Jika Anda mengubah resolusi di atas, uncomment bagian ini juga.
   // sensor_t * s_after_capture = esp_camera_sensor_get();
   // s_after_capture->set_framesize(s_after_capture, FRAMESIZE_VGA);
   // delay(100);
+  // Serial.println("Capture: Resolusi dikembalikan ke VGA (resolusi streaming).");
 
-  Serial.println("Capture: Gambar berhasil dikirim.");
+  Serial.println("Capture: Proses selesai, gambar berhasil dikirim ke client.");
 }

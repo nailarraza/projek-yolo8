@@ -52,14 +52,24 @@ DB_NAME = os.getenv("DB_NAME", "db_projek_yolo8") # Di README namanya projek_yol
 # Konfigurasi Kamera (ESP32-CAM atau DroidCam)
 # Nama variabel dipertahankan sebagai ESP32_CAM_* untuk konsistensi dengan kode yang ada,
 # namun konfigurasi di .env dapat diubah untuk DroidCam atau sumber kamera IP lainnya.
-CAMERA_BASE_IP = os.getenv("ESP32_CAM_IP") # Atau bisa dinamai ulang menjadi CAMERA_BASE_IP jika diinginkan
+RAW_CAMERA_IP = os.getenv("ESP32_CAM_IP")
+CAMERA_BASE_IP = None # Akan diisi setelah pemeriksaan skema
+
+if RAW_CAMERA_IP:
+    if not RAW_CAMERA_IP.startswith(('http://', 'https://')):
+        CAMERA_BASE_IP = f"http://{RAW_CAMERA_IP}"
+        print(f"INFO: Skema 'http://' ditambahkan secara otomatis ke ESP32_CAM_IP. IP Kamera efektif: {CAMERA_BASE_IP}")
+    else:
+        CAMERA_BASE_IP = RAW_CAMERA_IP
+
 CAMERA_STREAM_PATH = os.getenv("ESP32_CAM_STREAM_PATH", "/stream")
 CAMERA_CAPTURE_PATH = os.getenv("ESP32_CAM_CAPTURE_PATH", "/capture")
 
-print(f"Konfigurasi Kamera: IP Dasar = {CAMERA_BASE_IP}, Path Stream = {CAMERA_STREAM_PATH}, Path Capture = {CAMERA_CAPTURE_PATH}")
 if not CAMERA_BASE_IP:
     print("PERINGATAN: ESP32_CAM_IP (atau IP Kamera) tidak diatur di .env. Fitur kamera tidak akan berfungsi.")
-
+else:
+    # Cetak konfigurasi hanya jika CAMERA_BASE_IP berhasil ditentukan
+    print(f"Konfigurasi Kamera: IP Dasar = {CAMERA_BASE_IP}, Path Stream = {CAMERA_STREAM_PATH}, Path Capture = {CAMERA_CAPTURE_PATH}")
 
 @app.template_filter('date')
 def custom_date_filter(value, fmt=None):
@@ -235,7 +245,7 @@ def capture_and_detect():
     print(f"Capture & Detect: Mencoba mengambil gambar dari URL = {capture_url}")
 
     try:
-        response = requests.get(capture_url, timeout=10) # Timeout 10 detik
+        response = requests.get(capture_url, timeout=20) # Timeout 20 detik
         response.raise_for_status() # Akan raise error jika status code 4xx atau 5xx
         # Validasi Content-Type dari respons ESP32-CAM
         content_type = response.headers.get('Content-Type')

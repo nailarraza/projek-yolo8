@@ -213,7 +213,7 @@ def dashboard() -> str:
         esp32_stream_url = f"{CAMERA_BASE_IP}{CAMERA_STREAM_PATH}"
         print(f"Dashboard: URL Stream Kamera = {esp32_stream_url}")
     else:
-        flash("Alamat IP Kamera belum dikonfigurasi di file .env.", "warning")
+        flash("Alamat IP Kamera ESP32-CAM belum dikonfigurasi di file .env.", "warning")
 
     return render_template('dashboard.html', 
                            title="Dashboard", 

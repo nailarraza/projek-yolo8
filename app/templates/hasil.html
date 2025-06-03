@@ -30,8 +30,14 @@
                             <li class="list-group-item">
                                 <strong>Kelas Terdeteksi:</strong> 
                                 <span class="fw-bold">
-                                    {% if detection.detection_class == "Oli Baik" %}
+                                    {% if detection.detection_class == "Oli Asli" %}
                                         <span class="badge bg-success">{{ detection.detection_class }}</span>
+                                    {% elif detection.detection_class == "Oli Bekas layak" %}
+                                        <span class="badge bg-warning text-dark">{{ detection.detection_class }}</span>
+                                          {% elif detection.detection_class == "Oli Bekas Tidak Layak" %}
+                                        <span class="badge bg-warning text-dark">{{ detection.detection_class }}</span>
+                                    {% elif detection.detection_class == "Oli Palsu" %}
+                                        <span class="badge bg-warning text-dark">{{ detection.detection_class }}</span>
                                     {% elif detection.detection_class == "Oli Perlu Ganti" %}
                                         <span class="badge bg-warning text-dark">{{ detection.detection_class }}</span>
                                     {% elif detection.detection_class %}
@@ -47,7 +53,7 @@
                             </li>
                         </ul>
                         <hr>
-                        <h6>Deskripsi (dari Gemini API - Placeholder):</h6>
+                        <h6>Deskripsi (dari Gemini API :</h6>
                         <p class="card-text"><em>{{ detection.generative_description if detection.generative_description else 'Deskripsi tidak tersedia.' }}</em></p>
 
                         <div class="mt-3">

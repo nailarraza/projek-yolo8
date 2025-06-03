@@ -9,10 +9,10 @@
             <h2>Selamat Datang, {{ username }}!</h2>
             <br>
             <p>Arahkan kamera ESP32-CAM ke oli motor yang ingin diuji.</p>
-            <p class="text-muted small">Pastikan ESP32-CAM Anda menyala dan terhubung ke jaringan. IP ESP32-CAM: {{ esp32_cam_ip if esp32_cam_ip else 'Belum dikonfigurasi' }}</p>
+            <p class="text-muted small">Pastikan ESP32-CAM Anda menyala dan terhubung ke jaringan. <br> Terhubung dengan IP ESP32-CAM: "{{ esp32_cam_ip if esp32_cam_ip else 'Belum dikonfigurasi' }}"</p>
         </div>
     </div>
-
+    <br>
     <div class="row">
         <div class="col-md-8">
             <div class="card">
@@ -25,11 +25,11 @@
                     {% else %}
                     <img id="cameraFeed" src="https://placehold.co/640x480/eeeeee/cccccc?text=URL+Stream+Belum+Dikonfigurasi" alt="Live Camera Feed Placeholder" class="img-fluid rounded border" style="max-height: 480px;">
                     {% endif %}
-                    <p class="mt-2 text-muted">Jika stream tidak muncul, pastikan ESP32-CAM aktif dan IP benar.</p>
+                    <p class="mt-2 text-danger">Jika stream tidak muncul, pastikan ESP32-CAM aktif dan IP benar.</p>
                 </div>
             </div>
         </div>
-        <br>
+        <br><br>
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header">

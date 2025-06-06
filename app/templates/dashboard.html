@@ -5,47 +5,82 @@
 {% block content %}
 <div class="container mt-4">
     <div class="row mb-3">
-        <div class="col">
+        <div class="col-md-8">
             <h2>Selamat Datang, {{ username }}!</h2>
-            <br>
             <p>Arahkan kamera ESP32-CAM ke oli motor yang ingin diuji.</p>
-            <p class="text-muted small">Pastikan ESP32-CAM Anda menyala dan terhubung ke jaringan. <br> Terhubung dengan IP ESP32-CAM: "{{ esp32_cam_ip if esp32_cam_ip else 'Belum dikonfigurasi' }}"</p>
+        </div>
+        <div class="col-md-4 align-self-center">
+            <!-- Tombol untuk mode gelap/terang bisa diletakkan di sini atau di navbar -->
         </div>
     </div>
-    <br>
+
+    <!-- Form untuk Update IP Kamera -->
+    <div class="row mb-4">
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header">
+                    Konfigurasi IP Kamera ESP32-CAM
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('update_cam_ip') }}">
+                        <div class="input-group">
+                            <input type="text" class="form-control" name="esp32_cam_ip" placeholder="Contoh : 172.168.2.1" value="{{ current_cam_ip }}" aria-label="Alamat IP ESP32-CAM">
+                            <button class="btn btn-outline-primary" type="submit">Simpan IP</button>
+                        </div>
+                    </form>
+                    <small class="form-text text-muted">
+                        IP Kamera saat ini: <strong>{{ current_cam_ip if current_cam_ip else 'Belum diatur' }}</strong>.
+                        {% if not camera_configured and not current_cam_ip %}
+                            Masukkan IP untuk mengaktifkan fitur kamera.
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-md-8">
             <div class="card">
                 <div class="card-header">
                     Tampilan Kamera Realtime (ESP32-CAM)
                 </div>
-                <div class="card-body text-center">
-                    {% if esp32_stream_url %}
-                    <img id="cameraFeed" src="{{ esp32_stream_url }}" alt="Live Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px; min-height: 200px; background-color: #eee;" onerror="this.onerror=null; this.src='https://placehold.co/640x480/eeeeee/cccccc?text=Stream+Kamera+Tidak+Tersedia'; this.alt='Stream Kamera Tidak Tersedia';">
+                <div id="streamStatusMessage" class="alert alert-info m-3" style="display: none;" role="alert"></div>
+                <div class="card-body text-center" style="min-height: 280px; display: flex; align-items: center; justify-content: center; background-color: #f8f9fa;">
+                    {% if esp32_stream_url and camera_configured %}
+                        <img id="cameraFeed" src="{{ esp32_stream_url }}" alt="Live Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px; background-color: #eee;" onerror="handleStreamError(this, '{{ current_cam_ip }}')">
+                    {% elif current_cam_ip and not camera_configured %}
+                        <div class="text-warning">
+                            <p>Mencoba stream dengan IP: <strong>{{ current_cam_ip }}</strong>.</p>
+                            <p>Jika stream tidak muncul, pastikan IP benar, kamera terhubung, dan coba simpan ulang IP.</p>
+                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border" style="max-height: 240px;">
+                        </div>
                     {% else %}
-                    <img id="cameraFeed" src="https://placehold.co/640x480/eeeeee/cccccc?text=URL+Stream+Belum+Dikonfigurasi" alt="Live Camera Feed Placeholder" class="img-fluid rounded border" style="max-height: 480px;">
+                        <div class="text-muted">
+                            <p>Stream kamera tidak tersedia.</p>
+                            <p>Silakan konfigurasikan alamat IP kamera pada form di atas.</p>
+                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border" style="max-height: 240px;">
+                        </div>
                     {% endif %}
-                    <p class="mt-2 text-danger">Jika stream tidak muncul, pastikan ESP32-CAM aktif dan IP benar.</p>
                 </div>
             </div>
         </div>
-        <br><br>
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header">
                     Kontrol Deteksi
                 </div>
                 <div class="card-body">
-                    <p>Klik tombol di bawah untuk mengambil gambar dan melakukan deteksi kualitas oli.</p>
+                    <p>Klik tombol untuk mengambil gambar dan melakukan deteksi kualitas oli.</p>
                     <form method="POST" action="{{ url_for('capture_and_detect') }}">
-                        <button type="submit" class="btn btn-success w-100">
-                            Tangkap Gambar & Deteksi
+                        <button type="submit" class="btn btn-success w-100" {% if not camera_configured %}disabled{% endif %}>
+                            <i class="fas fa-camera"></i> Tangkap & Deteksi
                         </button>
                     </form>
                     <hr>
-                    <div id="detectionResultInfo" class="mt-3">
-                        <p class="text-muted">Hasil deteksi akan ditampilkan di halaman terpisah setelah proses selesai.</p>
-                    </div>
+                    {% if not camera_configured %}
+                    <p class="text-muted small mt-2">Tombol "Tangkap & Deteksi" akan aktif setelah IP Kamera dikonfigurasi dengan benar.</p>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -56,12 +91,33 @@
 {% block scripts_extra %}
 <script>
     // Opsional: script untuk refresh stream jika macet, atau cek status ESP32-CAM
-     const cameraFeed = document.getElementById('cameraFeed');
-     if (cameraFeed) {
-         cameraFeed.addEventListener('error', function() {
-             console.error('Error loading camera stream.');
-             // Anda bisa mencoba memuat ulang atau menampilkan pesan yang lebih detail
-         });
-     }
+    const streamStatusMessage = document.getElementById('streamStatusMessage');
+    const cameraFeed = document.getElementById('cameraFeed');
+
+    function handleStreamError(imageElement, ipAddress) {
+        console.error('Error loading camera stream. URL: ' + imageElement.src + ', IP Target: ' + ipAddress);
+        imageElement.src = "{{ url_for('static', filename='images/placeholder_no_stream.png') }}";
+        imageElement.alt = 'Stream tidak tersedia atau IP salah';
+        if (streamStatusMessage) {
+            streamStatusMessage.innerHTML = `<strong>Peringatan:</strong> Gagal memuat stream dari IP <strong>${ipAddress}</strong>. Pastikan IP benar, kamera aktif dan terhubung ke jaringan. Coba simpan ulang IP jika perlu.`;
+            streamStatusMessage.classList.remove('alert-info', 'alert-success');
+            streamStatusMessage.classList.add('alert-danger');
+            streamStatusMessage.style.display = 'block';
+        }
+    }
+
+    if (cameraFeed) {
+        cameraFeed.addEventListener('error', function() {
+            // Fungsi handleStreamError akan dipanggil oleh atribut onerror jika src awal valid
+            // Jika src awal tidak valid (misalnya, tidak ada esp32_stream_url), onerror mungkin tidak cukup
+            // Namun, kita sudah memanggilnya secara eksplisit di onerror atribut img
+        });
+        // Jika stream berhasil dimuat, kita bisa sembunyikan pesan error (jika ada) atau tampilkan pesan sukses
+        // cameraFeed.addEventListener('load', function() {
+        //     if (streamStatusMessage && streamStatusMessage.classList.contains('alert-danger')) {
+        //         streamStatusMessage.style.display = 'none'; // Sembunyikan jika sebelumnya error
+        //     }
+        // });
+    }
 </script>
 {% endblock %}

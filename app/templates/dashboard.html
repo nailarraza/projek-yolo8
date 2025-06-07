@@ -7,7 +7,7 @@
     <div class="row mb-3">
         <div class="col-md-8">
             <h2>Selamat Datang, {{ username }}!</h2>
-            <p>Arahkan kamera ESP32-CAM ke oli motor yang ingin diuji.</p>
+            <p>Silahkan konfigurasi kamera ESP32-CAM, Arahkan kamera ke oli motor yang ingin diuji dan Tekan tombol Tangkap.</p>
         </div>
         <div class="col-md-4 align-self-center">
             <!-- Tombol untuk mode gelap/terang bisa diletakkan di sini atau di navbar -->
@@ -79,7 +79,7 @@
                     </form>
                     <hr>
                     {% if not camera_configured %}
-                    <p class="text-muted small mt-2">Tombol "Tangkap & Deteksi" akan aktif setelah IP Kamera dikonfigurasi dengan benar.</p>
+                    <p class="text-muted small mt-2">Tombol "Tangkap & Deteksi" tidak aktif. <br> Akan aktif setelah IP Kamera dikonfigurasi dengan benar.</p>
                     {% endif %}
                 </div>
             </div>

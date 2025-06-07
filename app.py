@@ -12,6 +12,7 @@ from dotenv import load_dotenv # Untuk memuat variabel dari .env
 import requests 
 from ultralytics import YOLO # Pastikan ultralytics terinstal
 import cv2 # Untuk pemrosesan gambar (konversi ke byte, penyimpanan gambar anotasi)
+import numpy as np # Untuk konversi byte gambar ke array NumPy
 # from PIL import Image # Opsional: Uncomment jika ingin validasi gambar lebih lanjut dengan Pillow
 
 
@@ -57,8 +58,8 @@ DB_NAME = os.getenv("DB_NAME", "db_projek_yolo8")
 
 # Konfigurasi Kamera
 DEFAULT_CAMERA_IP_FROM_ENV = os.getenv("ESP32_CAM_IP") # IP dari .env sebagai fallback (string IP atau hostname)
-CAMERA_REQUEST_TIMEOUT = int(os.getenv("CAMERA_REQUEST_TIMEOUT", "30"))
-CAMERA_VERIFY_TIMEOUT = int(os.getenv("CAMERA_VERIFY_TIMEOUT", "15")) # Timeout untuk verifikasi koneksi IP
+CAMERA_REQUEST_TIMEOUT = int(os.getenv("CAMERA_REQUEST_TIMEOUT", "300"))
+CAMERA_VERIFY_TIMEOUT = int(os.getenv("CAMERA_VERIFY_TIMEOUT", "30")) # Timeout untuk verifikasi koneksi IP
 
 # CAMERA_STREAM_PATH dan CAMERA_CAPTURE_PATH diatur secara eksplisit
 # untuk memastikan kesesuaian dengan endpoint yang tetap di firmware ESP32-CAM.
@@ -523,9 +524,15 @@ def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]
 
         image_bytes = response_cam.content
         try:
-            # Lakukan inferensi YOLO. model_yolo bisa menerima byte gambar secara langsung.
-            results = model_yolo(image_bytes, verbose=False) 
+            # Decode byte gambar ke array NumPy (BGR)
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img_np is None:
+                print("API Error: Gagal men-decode gambar dari bytes yang diterima dari kamera.")
+                return {"error": "Gagal memproses gambar dari kamera (decode error)."}, 500
 
+            # Lakukan inferensi YOLO pada array NumPy
+            results = model_yolo(img_np, verbose=False)
             # results[0].plot() mengembalikan NumPy array (BGR) dari gambar dengan deteksi.
             # Jika tidak ada deteksi, ia akan mengembalikan gambar asli.
             annotated_image_bgr_np = results[0].plot() 

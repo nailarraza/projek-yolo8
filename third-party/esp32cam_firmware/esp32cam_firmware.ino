@@ -36,10 +36,10 @@ WebServer server(80);
 
 // --- Pengaturan untuk Kualitas Stream dan Capture ---
 #define DEFAULT_STREAM_FRAMESIZE FRAMESIZE_VGA // Misalnya VGA (640x480) untuk streaming
-#define DEFAULT_STREAM_QUALITY 12            // Kualitas JPEG untuk streaming (0-63, lebih tinggi = kualitas lebih rendah, ukuran lebih kecil)
+#define DEFAULT_STREAM_QUALITY 15            // Kualitas JPEG untuk streaming (0-63, lebih tinggi = kualitas lebih rendah, ukuran lebih kecil), sebelumnya 12
 
-#define CAPTURE_FRAMESIZE FRAMESIZE_UXGA     // Misalnya UXGA (1600x1200) untuk capture
-#define CAPTURE_QUALITY 10                   // Kualitas JPEG untuk capture (0-63, lebih rendah = kualitas lebih tinggi)
+#define CAPTURE_FRAMESIZE FRAMESIZE_VGA      // Turunkan ke VGA (640x480) untuk capture, demi kecepatan maksimal, sebelumnya SVGA
+#define CAPTURE_QUALITY 20                   // Naikkan lagi (turunkan kualitas gambar) untuk encoding JPEG lebih cepat, sebelumnya 15
 
 // Variabel global untuk menyimpan pengaturan stream default
 framesize_t streamFrameSize = DEFAULT_STREAM_FRAMESIZE;
@@ -56,46 +56,70 @@ void handleCapture() {
   }
 
   Serial.println("handleCapture: Menerima permintaan untuk mengambil gambar...");
+  unsigned long time_start_capture_func = millis();
 
   // Simpan pengaturan stream saat ini
   framesize_t original_frame_size = s->status.framesize;
   int original_jpeg_quality = s->pixformat == PIXFORMAT_JPEG ? s->status.quality : streamJpegQuality;
+  unsigned long time_after_get_orig_settings = millis();
+  Serial.printf("handleCapture: Waktu setelah get original settings: %lu ms (delta: %lu ms)\n", time_after_get_orig_settings, time_after_get_orig_settings - time_start_capture_func);
 
   // Atur sensor untuk kualitas capture terbaik
-  s->set_framesize(s, psramFound() ? CAPTURE_FRAMESIZE : FRAMESIZE_SVGA); // Sesuaikan jika tidak ada PSRAM
+  framesize_t capture_size_to_set = CAPTURE_FRAMESIZE;
+  if (!psramFound() && CAPTURE_FRAMESIZE > FRAMESIZE_SVGA) {
+    Serial.println("handleCapture: PSRAM tidak ditemukan, memaksa capture ke SVGA atau lebih rendah jika CAPTURE_FRAMESIZE terlalu besar.");
+    capture_size_to_set = FRAMESIZE_SVGA; // Batasi ke SVGA jika tidak ada PSRAM dan setting capture terlalu tinggi
+  }
+
+  s->set_framesize(s, capture_size_to_set);
   s->set_quality(s, CAPTURE_QUALITY);
+  unsigned long time_after_set_capture_settings = millis();
   Serial.printf("handleCapture: Sensor diatur ke framesize %d, quality %d untuk capture.\n", s->status.framesize, s->status.quality);
+  Serial.printf("handleCapture: Waktu setelah set capture settings: %lu ms (delta: %lu ms)\n", time_after_set_capture_settings, time_after_set_capture_settings - time_after_get_orig_settings);
 
   fb = esp_camera_fb_get();
-  
+  unsigned long time_after_fb_get = millis();
+  Serial.printf("handleCapture: Waktu setelah esp_camera_fb_get: %lu ms (delta: %lu ms)\n", time_after_fb_get, time_after_fb_get - time_after_set_capture_settings);
+
   // Kembalikan sensor ke pengaturan stream SEGERA setelah fb didapatkan
   s->set_framesize(s, original_frame_size);
   s->set_quality(s, original_jpeg_quality);
+  unsigned long time_after_restore_settings = millis();
   Serial.printf("handleCapture: Sensor dikembalikan ke framesize %d, quality %d (pengaturan stream).\n", s->status.framesize, s->status.quality);
+  Serial.printf("handleCapture: Waktu setelah restore settings: %lu ms (delta: %lu ms)\n", time_after_restore_settings, time_after_restore_settings - time_after_fb_get);
 
   if (!fb) {
     Serial.println("handleCapture: Pengambilan gambar dari kamera gagal (esp_camera_fb_get mengembalikan NULL).");
     server.send(500, "text/plain", "Gagal mengambil gambar dari kamera");
+    Serial.printf("handleCapture: Total waktu proses (gagal fb_get): %lu ms\n", millis() - time_start_capture_func);
     return;
   }
 
   Serial.printf("handleCapture: Gambar berhasil diambil. Ukuran: %zu bytes, Format: %d\n", fb->len, fb->format);
+  unsigned long time_after_fb_check_ok = millis();
+  Serial.printf("handleCapture: Waktu setelah fb check OK: %lu ms (delta: %lu ms)\n", time_after_fb_check_ok, time_after_fb_check_ok - time_after_restore_settings);
 
   if (fb->format != PIXFORMAT_JPEG) {
     Serial.printf("handleCapture: Format frame yang diambil bukan JPEG (format: %d). Diharapkan: %d.\n", fb->format, PIXFORMAT_JPEG);
     esp_camera_fb_return(fb); // Kembalikan frame buffer
     server.send(500, "text/plain", "Format gambar yang diambil bukan JPEG");
+    Serial.printf("handleCapture: Total waktu proses (format salah): %lu ms\n", millis() - time_start_capture_func);
     return;
   }
 
   // Periksa apakah client masih terhubung
   WiFiClient client = server.client();
+  unsigned long time_before_client_check = millis();
   if (!client || !client.connected()) {
     Serial.println("handleCapture: Client terputus sebelum pemrosesan gambar.");
     esp_camera_fb_return(fb);
     // Tidak bisa mengirim response ke client yang sudah terputus
+    Serial.printf("handleCapture: Waktu setelah client check (terputus): %lu ms (delta: %lu ms)\n", millis(), millis() - time_before_client_check);
+    Serial.printf("handleCapture: Total waktu proses (client terputus): %lu ms\n", millis() - time_start_capture_func);
     return;
   }
+  unsigned long time_after_client_check_ok = millis();
+  Serial.printf("handleCapture: Waktu setelah client check (OK): %lu ms (delta: %lu ms)\n", time_after_client_check_ok, time_after_client_check_ok - time_before_client_check);
 
   // Mengirim header HTTP secara eksplisit
   server.sendHeader("Access-Control-Allow-Origin", "*"); // Izinkan CORS
@@ -103,9 +127,12 @@ void handleCapture() {
   // Kirim status 200 OK dengan Content-Type. String kosong menandakan body akan dikirim terpisah.
   server.send(200, "image/jpeg", ""); 
 
+  unsigned long time_after_send_headers = millis();
   Serial.println("handleCapture: Header HTTP telah dikirim. Mencoba menulis data gambar ke client...");
+  Serial.printf("handleCapture: Waktu setelah send headers: %lu ms (delta: %lu ms)\n", time_after_send_headers, time_after_send_headers - time_after_client_check_ok);
 
   size_t sent_len = client.write(fb->buf, fb->len);
+  unsigned long time_after_write_data = millis();
 
   if (sent_len == fb->len) {
     Serial.printf("handleCapture: Data gambar berhasil dikirim (%zu bytes).\n", sent_len);
@@ -113,9 +140,13 @@ void handleCapture() {
     Serial.printf("handleCapture: Gagal mengirim data gambar secara lengkap. Terkirim %zu dari %zu bytes.\n", sent_len, fb->len);
     // Client mungkin menutup koneksi saat transfer.
   }
+  Serial.printf("handleCapture: Waktu setelah write data: %lu ms (delta: %lu ms)\n", time_after_write_data, time_after_write_data - time_after_send_headers);
 
   esp_camera_fb_return(fb); // Kembalikan frame buffer
+  unsigned long time_after_fb_return = millis();
   Serial.println("handleCapture: Frame buffer telah dikembalikan. Permintaan selesai diproses.");
+  Serial.printf("handleCapture: Waktu setelah fb_return: %lu ms (delta: %lu ms)\n", time_after_fb_return, time_after_fb_return - time_after_write_data);
+  Serial.printf("handleCapture: Total waktu proses (sukses): %lu ms\n", time_after_fb_return - time_start_capture_func);
 }
 
 // Handler untuk streaming MJPEG
@@ -126,18 +157,21 @@ void handleStream() {
     return;
   }
 
-  String response = "HTTP/1.1 200 OK\r\n";
-  response += "Content-Type: multipart/x-mixed-replace; boundary=--frame\r\n";
-  response += "Access-Control-Allow-Origin: *\r\n"; // Izinkan CORS
-  response += "\r\n";
-  server.sendContent(response);
-
+  // Send HTTP headers for MJPEG stream directly using client.print to save memory and avoid String objects
+  client.print("HTTP/1.1 200 OK\r\n");
+  client.print("Content-Type: multipart/x-mixed-replace; boundary=--frame\r\n");
+  client.print("Access-Control-Allow-Origin: *\r\n");
+  // Penting: Beritahu client untuk menutup koneksi ketika stream berakhir atau jika server menutupnya.
+  // WebServer.h biasanya menangani ini, tetapi eksplisit bisa membantu dalam beberapa kasus.
+  client.print("Connection: close\r\n"); 
+  client.print("\r\n");
+  
   Serial.println("handleStream: Memulai streaming MJPEG...");
   unsigned long lastFrameTime = 0;
 
   while (client.connected()) {
     // Batasi frame rate untuk tidak membebani ESP32 atau jaringan
-    if (millis() - lastFrameTime < 100) { // Target sekitar 10 FPS (1000ms / 100ms = 10 FPS)
+    if (millis() - lastFrameTime < 200) { // Target sekitar 5 FPS (1000ms / 200ms = 5 FPS), sebelumnya 100ms
       delay(1); // Beri kesempatan task lain berjalan
       continue;
     }
@@ -151,13 +185,15 @@ void handleStream() {
       continue;
     }
 
-    response = "--frame\r\n";
-    response += "Content-Type: image/jpeg\r\n";
-    response += "Content-Length: " + String(fb->len) + "\r\n\r\n";
-    server.sendContent(response);
-    
+    // Send MJPEG frame header using client.print
+    client.print("--frame\r\n");
+    client.print("Content-Type: image/jpeg\r\n");
+    client.print("Content-Length: ");
+    client.print(fb->len); // Mengirim panjang sebagai angka, lalu baris baru
+    client.print("\r\n\r\n");
+    // Send image data
     client.write(fb->buf, fb->len);
-    server.sendContent("\r\n");
+    client.print("\r\n"); // Akhir dari frame, diperlukan oleh beberapa client
     
     esp_camera_fb_return(fb);
   }

@@ -1,6 +1,9 @@
 <nav class="navbar navbar-expand-lg navbar-dark navbar-custom fixed-top">
     <div class="container-fluid">
-        <a class="navbar-brand" href="{{ url_for('index') }}">Sistem Deteksi Oli Motor</a>
+        <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
+            <img src="{{ url_for('static', filename='img/fav.png') }}" alt="Logo" width="30" height="30" class="me-2">
+            Sistem Deteksi Oli Motor
+        </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -52,9 +55,10 @@
       <div class="modal-body">
         <p class="text-center">Aplikasi Sistem Deteksi Kualitas Oli Motor.</p>
         <p class="text-center">Versi Produksi 1.4.2</p>
-        <br><br>
+        <p class="text-center">
+            <img src="{{ url_for('static', filename='img/logo-kampus.png') }}" alt="Logo Kampus" class="mx-auto d-block" style="max-width: 150px; height: auto;">
+        </p>
         <p class="text-center">Dikembangkan oleh Nailar Raza <br> dengan tujuan edukasi dan demonstrasi.</p>
-        <br>
         <p class="text-center">Proyek ini adalah acuan untuk memperoleh gelar Sarjana (S1) <br> Program Studi Teknik Informatika <br> Fakultas Teknik <br> Universitas Muhammadiyah Ponorogo<br> </p>
       </div>
       <!--<div class="modal-footer">

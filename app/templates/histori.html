@@ -46,7 +46,7 @@
                             <span class="badge bg-secondary">N/A</span>
                         {% endif %}
                     </td>
-                    <td>{{ '%.2f%%'|format(detection.confidence_score * 100) if detection.confidence_score is not none else 'N/A' }}</td>
+                    <td>{{ ('%.2f'|format(detection.confidence_score)).replace('.', ',') ~ ' %' if detection.confidence_score is not none else 'N/A' }}</td>
                     <td>
                         <a href="{{ url_for('hasil', detection_id=detection.id) }}" class="btn btn-sm btn-info me-1">
                             Lihat Detail

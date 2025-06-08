@@ -18,9 +18,13 @@
                          class="img-fluid rounded-start" alt="Gambar Hasil Deteksi: {{ detection.image_name if detection.image_name else 'Gambar Deteksi' }}"
                              onerror="this.onerror=null; this.src='https://placehold.co/600x400/dddddd/999999?text=Gambar+Tidak+Ditemukan+di+URL+{{ image_url }}'; console.error('Gagal memuat gambar dari: {{ image_url }}');">
                         <p class="text-muted small mt-1 px-2">
-                            <small><em>Path tersimpan: <code>{{ detection.image_path }}</code><br>
-                            URL coba dimuat: <code>{{ image_url }}</code></em></small>
+                            <small><em>Path tersimpan: <code>{{ detection.image_path }}</code></code></em></small>
                         </p>
+                        <div class="mt-3 px-2">
+                            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Deteksi Lagi</a>
+                            <a href="{{ url_for('histori') }}" class="btn btn-secondary">Lihat Semua Histori</a>
+                            <br><br>
+                        </div>
                     {% else %}
                         <img src="https://placehold.co/600x400/dddddd/999999?text=Gambar+Tidak+Tersedia"
                          class="img-fluid rounded-start" alt="Gambar Tidak Tersedia">
@@ -37,7 +41,7 @@
                             <li class="list-group-item">
                                 <strong>Kelas Terdeteksi:</strong> 
                                 <span class="fw-bold">
-                                    {% if detection.detection_class == "Oli Asli" %}
+                                    {% if detection.detection_class == "OFli Asli" %}
                                         <span class="badge bg-success">{{ detection.detection_class }}</span>
                                     {% elif detection.detection_class == "Oli Bekas layak" %}
                                         <span class="badge bg-warning text-dark">{{ detection.detection_class }}</span>
@@ -56,17 +60,13 @@
                             </li>
                             <li class="list-group-item">
                                 <strong>Tingkat Akurasi:</strong> 
-                                {{ '%.2f%%'|format(detection.confidence_score * 100) if detection.confidence_score is not none else 'N/A' }}
+                                {{ ('%.2f'|format(detection.confidence_score)).replace('.', ',') ~ ' %' if detection.confidence_score is not none else 'N/A' }}
                             </li>
                         </ul>
                         <hr>
                         <h6>Deskripsi (dari Goole Gemini) :</h6>
                         <p class="card-text"><em>{{ detection.generative_description if detection.generative_description else 'Deskripsi tidak tersedia.' }}</em></p>
 
-                        <div class="mt-3">
-                            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Deteksi Lagi</a>
-                            <a href="{{ url_for('histori') }}" class="btn btn-secondary">Lihat Semua Histori</a>
-                        </div>
                     </div>
                 </div>
             </div>

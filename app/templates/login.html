@@ -13,12 +13,12 @@
                 {% endif %}
                 <form method="POST" action="{{ url_for('login') }}">
                     <div class="mb-3">
-                        <label for="identifier" class="form-label">Username atau Email</label>
-                        <input type="text" class="form-control" id="identifier" name="identifier" placeholder="Masukkan username atau email Anda" required>
+                        <label for="identifier" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="identifier" name="identifier" placeholder="Masukkan username atau email" required>
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="password" name="password" placeholder="Masukkan password Anda" required>
+                        <input type="password" class="form-control" id="password" name="password" placeholder="Masukkan password" required>
                     </div>
                     <!-- <div class="mb-3 form-check">
                         <input type="checkbox" class="form-check-input" id="rememberMe">
@@ -27,7 +27,7 @@
                     <button type="submit" class="btn btn-primary w-100">Login</button>
                 </form>
                 <hr>
-                <p class="text-center mb-0">Belum punya akun? <a href="{{ url_for('register') }}">Register di sini</a></p>
+                <p class="text-center mb-0">Belum punya akun? <a href="{{ url_for('register') }}">Registrasi di sini</a></p>
             </div>
         </div>
     </div>

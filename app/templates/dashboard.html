@@ -15,7 +15,7 @@
                         <div class="mb-3">
                             <label for="esp32_cam_ip" class="form-label">Alamat IP Kamera:</label>
                             <input type="text" class="form-control" id="esp32_cam_ip" name="esp32_cam_ip" value="{{ current_cam_ip }}" placeholder="Contoh: 192.168.1.10">
-                            <div class="form-text">Masukkan alamat IP ESP32-CAM Anda. Jika dikosongkan, akan menggunakan IP dari konfigurasi default (jika ada).</div>
+                            <div class="form-text">Masukkan alamat IP ESP32-CAM Anda.</div>
                         </div>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i> Simpan & Verifikasi IP
@@ -24,6 +24,7 @@
                 </div>
             </div>
         </div>
+        <br>
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
@@ -35,7 +36,6 @@
                         <p>Stream URL: <code>{{ esp32_stream_url }}</code></p>
                     {% else %}
                         <p class="text-warning"><i class="fas fa-exclamation-triangle"></i> Kamera belum dikonfigurasi atau IP tidak valid.</p>
-                        <p>Masukkan IP Kamera di samping untuk mengaktifkan fitur.</p>
                     {% endif %}
                 </div>
             </div>
@@ -68,6 +68,7 @@
                 </div>
             </div>
         </div>
+        <br>
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header">

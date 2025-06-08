@@ -14,16 +14,8 @@ const char* ssid = "Gopo Network";
 const char* password = "sister23";
 
 // Definisikan model kamera Anda
-// #define CAMERA_MODEL_WROVER_KIT
-// #define CAMERA_MODEL_ESP_EYE
-// #define CAMERA_MODEL_M5STACK_PSRAM
-// #define CAMERA_MODEL_M5STACK_V2_PSRAM
-// #define CAMERA_MODEL_M5STACK_WIDE
-// #define CAMERA_MODEL_M5STACK_ESP32CAM
 #define CAMERA_MODEL_AI_THINKER // Model paling umum
-// #define CAMERA_MODEL_TTGO_T_JOURNAL
 
-// Hapus #include "camera_pins.h" dan tambahkan definisi pin di sini
 // Pin definitions for CAMERA_MODEL_AI_THINKER
 #if defined(CAMERA_MODEL_AI_THINKER)
   #define PWDN_GPIO_NUM     32
@@ -31,7 +23,6 @@ const char* password = "sister23";
   #define XCLK_GPIO_NUM      0
   #define SIOD_GPIO_NUM     26 // SDA
   #define SIOC_GPIO_NUM     27 // SCL
-
   #define Y9_GPIO_NUM       35 // D7
   #define Y8_GPIO_NUM       34 // D6
   #define Y7_GPIO_NUM       39 // D5

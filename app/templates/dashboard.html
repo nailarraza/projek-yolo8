@@ -4,36 +4,40 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="row mb-3">
-        <div class="col-md-8">
-            <h2>Selamat Datang, {{ username }}!</h2>
-            <p>Silahkan konfigurasi kamera ESP32-CAM, Arahkan kamera ke oli motor yang ingin diuji dan Tekan tombol Tangkap.</p>
-        </div>
-        <div class="col-md-4 align-self-center">
-            <!-- Tombol untuk mode gelap/terang bisa diletakkan di sini atau di navbar -->
-        </div>
-    </div>
 
-    <!-- Form untuk Update IP Kamera -->
     <div class="row mb-4">
-        <div class="col-md-7">
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
                     Konfigurasi IP Kamera ESP32-CAM
                 </div>
                 <div class="card-body">
                     <form method="POST" action="{{ url_for('update_cam_ip') }}">
-                        <div class="input-group">
-                            <input type="text" class="form-control" name="esp32_cam_ip" placeholder="Contoh : 172.168.2.1" value="{{ current_cam_ip }}" aria-label="Alamat IP ESP32-CAM">
-                            <button class="btn btn-outline-primary" type="submit">Simpan IP</button>
+                        <div class="mb-3">
+                            <label for="esp32_cam_ip" class="form-label">Alamat IP Kamera:</label>
+                            <input type="text" class="form-control" id="esp32_cam_ip" name="esp32_cam_ip" value="{{ current_cam_ip }}" placeholder="Contoh: 192.168.1.10">
+                            <div class="form-text">Masukkan alamat IP ESP32-CAM Anda. Jika dikosongkan, akan menggunakan IP dari konfigurasi default (jika ada).</div>
                         </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Simpan & Verifikasi IP
+                        </button>
                     </form>
-                    <small class="form-text text-muted">
-                        IP Kamera saat ini: <strong>{{ current_cam_ip if current_cam_ip else 'Belum diatur' }}</strong>.
-                        {% if not camera_configured and not current_cam_ip %}
-                            Masukkan IP untuk mengaktifkan fitur kamera.
-                        {% endif %}
-                    </small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Status Kamera
+                </div>
+                <div class="card-body">
+                    {% if camera_configured %}
+                        <p class="text-success"><i class="fas fa-check-circle"></i> Kamera terkonfigurasi dengan IP: <strong>{{ current_cam_ip }}</strong></p>
+                        <p>Stream URL: <code>{{ esp32_stream_url }}</code></p>
+                    {% else %}
+                        <p class="text-warning"><i class="fas fa-exclamation-triangle"></i> Kamera belum dikonfigurasi atau IP tidak valid.</p>
+                        <p>Masukkan IP Kamera di samping untuk mengaktifkan fitur.</p>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -50,16 +54,16 @@
                     {% if esp32_stream_url and camera_configured %}
                         <img id="cameraFeed" src="{{ esp32_stream_url }}" alt="Live Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px; background-color: #eee;" onerror="handleStreamError(this, '{{ current_cam_ip }}')">
                     {% elif current_cam_ip and not camera_configured %}
-                        <div class="text-warning">
-                            <p>Mencoba stream dengan IP: <strong>{{ current_cam_ip }}</strong>.</p>
-                            <p>Jika stream tidak muncul, pastikan IP benar, kamera terhubung, dan coba simpan ulang IP.</p>
-                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border" style="max-height: 240px;">
+                        <div class="text-center p-3">
+                            <i class="fas fa-video-slash fa-3x text-muted mb-2"></i>
+                            <p class="text-muted">Tidak dapat terhubung ke stream kamera di <strong>{{ current_cam_ip }}</strong>.<br>Pastikan IP benar dan kamera aktif, atau coba verifikasi ulang IP.</p>
+                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border" style="max-height: 200px; opacity: 0.5;">
                         </div>
                     {% else %}
-                        <div class="text-muted">
-                            <p>Stream kamera tidak tersedia.</p>
-                            <p>Silakan konfigurasikan alamat IP kamera pada form di atas.</p>
-                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border" style="max-height: 240px;">
+                         <div class="text-center p-3">
+                            <i class="fas fa-camera fa-3x text-muted mb-2"></i>
+                            <p class="text-muted">Stream kamera akan tampil di sini setelah IP Kamera dikonfigurasi.</p>
+                            <img src="{{ url_for('static', filename='images/placeholder_no_cam.png') }}" alt="Kamera tidak dikonfigurasi" class="img-fluid rounded border" style="max-height: 200px; opacity: 0.5;">
                         </div>
                     {% endif %}
                 </div>
@@ -71,53 +75,174 @@
                     Kontrol Deteksi
                 </div>
                 <div class="card-body">
-                    <p>Klik tombol untuk mengambil gambar dan melakukan deteksi kualitas oli.</p>
-                    <form method="POST" action="{{ url_for('capture_and_detect') }}">
-                        <button type="submit" class="btn btn-success w-100" {% if not camera_configured %}disabled{% endif %}>
-                            <i class="fas fa-camera"></i> Tangkap & Deteksi
-                        </button>
-                    </form>
+                    <p>Klik tombol untuk mengambil gambar dari tampilan di samping dan melakukan deteksi kualitas oli.</p>
+                    <button id="captureAndDetectButton" type="button" class="btn btn-success w-100 mb-2" {% if not camera_configured %}disabled{% endif %}>
+                        <i class="fas fa-camera"></i> Tangkap & Deteksi
+                    </button>
+                    <div id="captureSpinner" class="text-center mt-2" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Memproses gambar...</p>
+                    </div>
+                    <div id="captureUserMessage" class="alert mt-2" style="display: none;" role="alert"></div>
+
                     <hr>
                     {% if not camera_configured %}
-                    <p class="text-muted small mt-2">Tombol "Tangkap & Deteksi" tidak aktif. <br> Akan aktif setelah IP Kamera dikonfigurasi dengan benar.</p>
+                    <p class="text-muted small mt-2">Tombol "Tangkap & Deteksi" tidak aktif. <br> Akan aktif setelah IP Kamera dikonfigurasi dengan benar dan stream tampil.</p>
                     {% endif %}
+                     <a href="{{ url_for('histori') }}" class="btn btn-outline-secondary w-100 mt-2">
+                        <i class="fas fa-history"></i> Lihat Histori Deteksi
+                    </a>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Canvas tersembunyi untuk menggambar frame dari img -->
+<canvas id="hiddenCanvas" style="display:none;"></canvas>
 {% endblock %}
 
 {% block scripts_extra %}
 <script>
-    // Opsional: script untuk refresh stream jika macet, atau cek status ESP32-CAM
-    const streamStatusMessage = document.getElementById('streamStatusMessage');
     const cameraFeed = document.getElementById('cameraFeed');
+    const streamStatusMessage = document.getElementById('streamStatusMessage');
+    const captureButton = document.getElementById('captureAndDetectButton');
+    const hiddenCanvas = document.getElementById('hiddenCanvas');
+    const captureSpinner = document.getElementById('captureSpinner');
+    const captureUserMessage = document.getElementById('captureUserMessage');
 
-    function handleStreamError(imageElement, ipAddress) {
-        console.error('Error loading camera stream. URL: ' + imageElement.src + ', IP Target: ' + ipAddress);
-        imageElement.src = "{{ url_for('static', filename='images/placeholder_no_stream.png') }}";
-        imageElement.alt = 'Stream tidak tersedia atau IP salah';
+    function handleStreamError(imageElement, camIp) {
+        console.error('Error loading camera stream from:', imageElement.src);
         if (streamStatusMessage) {
-            streamStatusMessage.innerHTML = `<strong>Peringatan:</strong> Gagal memuat stream dari IP <strong>${ipAddress}</strong>. Pastikan IP benar, kamera aktif dan terhubung ke jaringan. Coba simpan ulang IP jika perlu.`;
-            streamStatusMessage.classList.remove('alert-info', 'alert-success');
-            streamStatusMessage.classList.add('alert-danger');
+            streamStatusMessage.innerHTML = `<strong>Error:</strong> Gagal memuat stream dari kamera (${camIp || 'IP tidak diketahui'}). Pastikan kamera aktif dan IP benar. <a href="{{ url_for('dashboard') }}" class="alert-link">Refresh halaman</a> atau perbarui IP.`;
+            streamStatusMessage.className = 'alert alert-danger m-3'; // Set kelas ke danger
             streamStatusMessage.style.display = 'block';
+        }
+        // Ganti src dengan placeholder jika error
+        imageElement.src = "{{ url_for('static', filename='images/placeholder_no_stream.png') }}";
+        imageElement.alt = "Gagal memuat stream kamera";
+        if (captureButton) {
+            captureButton.disabled = true; // Nonaktifkan tombol capture jika stream gagal
         }
     }
 
-    if (cameraFeed) {
-        cameraFeed.addEventListener('error', function() {
-            // Fungsi handleStreamError akan dipanggil oleh atribut onerror jika src awal valid
-            // Jika src awal tidak valid (misalnya, tidak ada esp32_stream_url), onerror mungkin tidak cukup
-            // Namun, kita sudah memanggilnya secara eksplisit di onerror atribut img
-        });
-        // Jika stream berhasil dimuat, kita bisa sembunyikan pesan error (jika ada) atau tampilkan pesan sukses
-        // cameraFeed.addEventListener('load', function() {
-        //     if (streamStatusMessage && streamStatusMessage.classList.contains('alert-danger')) {
-        //         streamStatusMessage.style.display = 'none'; // Sembunyikan jika sebelumnya error
-        //     }
-        // });
+    function showCaptureMessage(message, type = 'info') {
+        if (captureUserMessage) {
+            captureUserMessage.innerHTML = message;
+            captureUserMessage.className = `alert alert-${type} mt-2`; // Reset kelas
+            captureUserMessage.style.display = 'block';
+        } else {
+            // Fallback jika elemen tidak ada (seharusnya tidak terjadi)
+            alert(`${type.toUpperCase()}: ${message}`);
+        }
     }
+
+    if (captureButton && cameraFeed && hiddenCanvas) {
+        captureButton.addEventListener('click', async function() {
+            // Cek apakah gambar yang ditampilkan adalah placeholder karena error atau belum ada stream
+            if (!cameraFeed.src || cameraFeed.src.includes('placeholder_') || cameraFeed.naturalWidth === 0) {
+                showCaptureMessage('Stream kamera tidak aktif atau gambar tidak valid. Tidak dapat menangkap.', 'warning');
+                return;
+            }
+
+            captureButton.disabled = true;
+            if (captureSpinner) captureSpinner.style.display = 'block';
+            if (captureUserMessage) captureUserMessage.style.display = 'none'; // Sembunyikan pesan lama
+
+            try {
+                // 1. Fetch snapshot dari Flask server (yang mengambil dari ESP32 /capture_image)
+                const snapshotResponse = await fetch("{{ url_for('get_snapshot_for_canvas') }}");
+                const snapshotResult = await snapshotResponse.json();
+
+                if (!snapshotResponse.ok || snapshotResult.status !== 'success' || !snapshotResult.image_data_url) {
+                    showCaptureMessage(`Gagal mengambil snapshot dari server: ${snapshotResult.message || 'Error tidak diketahui.'}`, 'danger');
+                    captureButton.disabled = false; // Aktifkan kembali tombol jika gagal
+                    if (captureSpinner) captureSpinner.style.display = 'none';
+                    return;
+                }
+
+                // 2. Load snapshot (sebagai data URL same-origin) ke temporary image, lalu gambar ke canvas
+                const tempImg = new Image();
+                tempImg.onload = async () => { // Jadikan fungsi ini async untuk await di dalamnya
+                    try {
+                        const ctx = hiddenCanvas.getContext('2d');
+                        hiddenCanvas.width = tempImg.naturalWidth;
+                        hiddenCanvas.height = tempImg.naturalHeight;
+                        ctx.drawImage(tempImg, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+                        // Dapatkan data URL dari canvas (sekarang tidak tainted)
+                        const canvasDataUrl = hiddenCanvas.toDataURL('image/jpeg', 0.9);
+
+                        // 3. Kirim data URL dari canvas ini ke endpoint pemrosesan
+                        const processResponse = await fetch("{{ url_for('process_browser_capture') }}", {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ image_data_url: canvasDataUrl })
+                        });
+                        const processResult = await processResponse.json();
+
+                        if (processResponse.ok && processResult.status === 'success' && processResult.redirect_url) {
+                            showCaptureMessage('Gambar berhasil diproses! Mengarahkan ke halaman hasil...', 'success');
+                            setTimeout(() => {
+                                window.location.href = processResult.redirect_url;
+                            }, 1500);
+                        } else {
+                            showCaptureMessage(`Gagal memproses gambar: ${processResult.message || 'Error tidak diketahui dari server.'}`, 'danger');
+                            captureButton.disabled = false;
+                        }
+                    } catch (processingError) {
+                        console.error('Error saat memproses gambar atau mengirim ke server:', processingError);
+                        showCaptureMessage(`Terjadi kesalahan lanjutan saat memproses: ${processingError.message}`, 'danger');
+                        captureButton.disabled = false;
+                    } finally {
+                        // Spinner disembunyikan setelah pemrosesan selesai atau gagal
+                        if (captureSpinner) captureSpinner.style.display = 'none';
+                    }
+                };
+                tempImg.onerror = () => {
+                    showCaptureMessage('Gagal memuat data snapshot ke elemen gambar. Data mungkin korup.', 'danger');
+                    captureButton.disabled = false;
+                    if (captureSpinner) captureSpinner.style.display = 'none';
+                };
+                tempImg.src = snapshotResult.image_data_url; // Ini akan memicu tempImg.onload atau tempImg.onerror
+
+            } catch (error) { // Menangkap error dari fetch awal ke /get_snapshot_for_canvas
+                console.error('Error saat mengambil snapshot awal:', error);
+                showCaptureMessage(`Terjadi kesalahan pada sisi klien saat mengambil snapshot: ${error.message}`, 'danger');
+                captureButton.disabled = false; // Aktifkan kembali tombol jika ada error klien
+                if (captureSpinner) captureSpinner.style.display = 'none';
+            }
+            // Tidak ada 'finally' di sini karena operasi utama bersifat asinkron di dalam tempImg.onload/onerror
+            // Spinner dan tombol dihandle di dalam callback tersebut atau di catch luar.
+        });
+    } else {
+        if (captureButton) { // Jika tombol ada tapi elemen lain tidak, ini masalah konfigurasi
+            console.warn("Tombol capture ada, tetapi elemen cameraFeed atau hiddenCanvas tidak ditemukan. Fitur capture mungkin tidak berfungsi.");
+            // captureButton.disabled = true; // Bisa dinonaktifkan jika elemen penting tidak ada
+        }
+    }
+
+    // Logika untuk mengaktifkan/menonaktifkan tombol capture berdasarkan status stream awal
+    // Ini akan berjalan saat halaman dimuat
+    window.addEventListener('load', () => {
+        if (cameraFeed && captureButton) {
+            if (cameraFeed.src && !cameraFeed.src.includes('placeholder_') && cameraFeed.naturalWidth > 0) {
+                // Stream tampak aktif
+                // captureButton.disabled = false; // Seharusnya sudah diatur oleh Jinja {{ camera_configured }}
+            } else {
+                // Stream tampak tidak aktif atau placeholder
+                // captureButton.disabled = true; // Seharusnya sudah diatur oleh Jinja
+                if (document.getElementById('esp32_cam_ip').value) { // Hanya tampilkan jika IP sudah diisi
+                     // Pesan ini bisa ditampilkan jika stream gagal load meskipun IP ada
+                    // handleStreamError(cameraFeed, document.getElementById('esp32_cam_ip').value);
+                }
+            }
+        }
+    });
+
 </script>
 {% endblock %}

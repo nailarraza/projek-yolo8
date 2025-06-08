@@ -12,6 +12,8 @@ from dotenv import load_dotenv # Untuk memuat variabel dari .env
 import requests 
 from ultralytics import YOLO # Pastikan ultralytics terinstal
 import cv2 # Untuk pemrosesan gambar (konversi ke byte, penyimpanan gambar anotasi)
+import base64 # Untuk decode base64 image dari client
+import time # Digunakan dalam fungsi capture_single_frame_from_stream_cv2
 import numpy as np # Untuk konversi byte gambar ke array NumPy
 # from PIL import Image # Opsional: Uncomment jika ingin validasi gambar lebih lanjut dengan Pillow
 
@@ -58,13 +60,13 @@ DB_NAME = os.getenv("DB_NAME", "db_projek_yolo8")
 
 # Konfigurasi Kamera
 DEFAULT_CAMERA_IP_FROM_ENV = os.getenv("ESP32_CAM_IP") # IP dari .env sebagai fallback (string IP atau hostname)
-CAMERA_REQUEST_TIMEOUT = int(os.getenv("CAMERA_REQUEST_TIMEOUT", "300"))
+CAMERA_REQUEST_TIMEOUT = int(os.getenv("CAMERA_REQUEST_TIMEOUT", "60"))
 CAMERA_VERIFY_TIMEOUT = int(os.getenv("CAMERA_VERIFY_TIMEOUT", "30")) # Timeout untuk verifikasi koneksi IP
 
 # CAMERA_STREAM_PATH dan CAMERA_CAPTURE_PATH diatur secara eksplisit
 # untuk memastikan kesesuaian dengan endpoint yang tetap di firmware ESP32-CAM.
-CAMERA_STREAM_PATH = "/stream"
-CAMERA_CAPTURE_PATH = "/capture_image"
+CAMERA_STREAM_PATH = "/stream" # Untuk live view di dashboard/uji_kamera
+CAMERA_CAPTURE_PATH = "/stream" # Default ke /stream, bisa diubah jika ada endpoint snapshot khusus seperti /capture
 # untuk memastikan kesesuaian dengan endpoint yang tetap di firmware ESP32-CAM.
 
 def get_camera_base_ip() -> Optional[str]:
@@ -103,12 +105,14 @@ def verify_camera_connection(ip_address: str) -> Tuple[bool, str]:
     else:
         base_url = ip_address
 
-    stream_url = f"{base_url}{CAMERA_STREAM_PATH}"
-    print(f"Verifying camera connection to: {stream_url} with timeout {CAMERA_VERIFY_TIMEOUT}s")
+    # Verifikasi bisa menggunakan stream path atau capture path.
+    # Stream path lebih baik untuk verifikasi "keaktifan" kamera.
+    verify_url = f"{base_url}{CAMERA_STREAM_PATH}" 
+    print(f"Verifying camera connection to: {verify_url} with timeout {CAMERA_VERIFY_TIMEOUT}s")
 
     try:
         # Menggunakan GET dengan stream=True dan close untuk memastikan koneksi stream bisa dibuka
-        with requests.get(stream_url, timeout=CAMERA_VERIFY_TIMEOUT, stream=True) as response:
+        with requests.get(verify_url, timeout=CAMERA_VERIFY_TIMEOUT, stream=True) as response:
             # Check if we got a successful response status code (2xx)
             # For MJPEG stream, the initial headers are sent with 200 OK.
             if response.status_code == 200:
@@ -116,33 +120,153 @@ def verify_camera_connection(ip_address: str) -> Tuple[bool, str]:
                  try:
                      chunk = next(response.iter_content(chunk_size=1024), None)
                      if chunk is not None:
-                         print(f"Verification successful for {ip_address}. Received initial data.")
-                         return True, "Koneksi berhasil diverifikasi."
+                         print(f"Verification successful for {ip_address}. Received initial data from stream.")
+                         return True, "Koneksi stream berhasil diverifikasi."
                      else:
-                         print(f"Verification warning for {ip_address}: Received 200 OK but no initial data chunk.")
-                         return False, "Koneksi berhasil, tetapi tidak ada data stream awal yang diterima."
+                             print(f"Verification failed for {ip_address}: Stream responded with 200 OK but no initial data was received (empty stream or connection closed prematurely).")
+                             return False, "Koneksi stream berhasil dibuka (200 OK), tetapi tidak ada data stream awal yang diterima. Pastikan kamera mengirimkan data."
                  except requests.exceptions.RequestException as e:
-                      print(f"Verification error for {ip_address}: Failed to read initial data chunk - {e}")
-                      return False, f"Koneksi berhasil, tetapi gagal membaca data stream awal: {e}"
+                      print(f"Verification error for {ip_address}: Failed to read initial data chunk from stream - {e}")
+                      return False, f"Koneksi stream berhasil, tetapi gagal membaca data stream awal: {e}"
             else:
-                print(f"Verification failed for {ip_address}: Received status code {response.status_code}")
-                return False, f"Server merespons dengan status code: {response.status_code}"
+                print(f"Verification failed for {ip_address}: Stream endpoint responded with status code {response.status_code}")
+                return False, f"Server stream merespons dengan status code: {response.status_code}"
     except requests.exceptions.Timeout:
-        print(f"Verification failed for {ip_address}: Timeout after {CAMERA_VERIFY_TIMEOUT}s")
-        return False, f"Timeout saat mencoba terhubung setelah {CAMERA_VERIFY_TIMEOUT} detik."
+        print(f"Verification failed for {ip_address}: Timeout after {CAMERA_VERIFY_TIMEOUT}s on stream endpoint.")
+        return False, f"Timeout saat mencoba terhubung ke stream setelah {CAMERA_VERIFY_TIMEOUT} detik."
     except requests.exceptions.RequestException as e:
-        print(f"Verification failed for {ip_address}: Connection Error - {e}")
-        return False, f"Gagal terhubung: {e}"
+        print(f"Verification failed for {ip_address}: Connection Error on stream endpoint - {e}")
+        return False, f"Gagal terhubung ke stream: {e}"
     except Exception as e:
-        print(f"Verification failed for {ip_address}: Unexpected Error - {e}")
-        return False, f"Terjadi kesalahan tak terduga saat verifikasi: {e}"
+        print(f"Verification failed for {ip_address}: Unexpected Error on stream endpoint - {e}")
+        return False, f"Terjadi kesalahan tak terduga saat verifikasi stream: {e}"
 
-print(f"  Path Stream Kamera: {CAMERA_STREAM_PATH}")
-print(f"  Path Capture Kamera: {CAMERA_CAPTURE_PATH}")
+print(f"  Path Stream Kamera (untuk live view): {CAMERA_STREAM_PATH}")
+print(f"  Path Capture Kamera (untuk deteksi): {CAMERA_CAPTURE_PATH}")
 print(f"  Timeout Request Kamera: {CAMERA_REQUEST_TIMEOUT} detik")
 print(f"  Timeout Verifikasi Kamera: {CAMERA_VERIFY_TIMEOUT} detik")
-print(f"  PENTING: Pastikan 'Path Capture' ({CAMERA_CAPTURE_PATH}) sesuai dengan endpoint di firmware ESP32-CAM Anda.")
+print(f"  PENTING: Pastikan 'Path Capture' ({CAMERA_CAPTURE_PATH}) dan 'Path Stream' ({CAMERA_STREAM_PATH}) sesuai dengan endpoint di firmware ESP32-CAM Anda.")
 
+def capture_single_frame_from_http_endpoint(capture_url: str, 
+                                            timeout: int = 10) -> Tuple[Optional[np.ndarray], Optional[str]]:
+    """
+    Mengambil satu frame gambar dari HTTP endpoint (misalnya, ESP32-CAM /capture_image).
+    Mengembalikan (frame_numpy_array, error_message).
+    """
+    try:
+        print(f"Mencoba mengambil gambar dari HTTP endpoint: {capture_url} dengan timeout {timeout}s")
+        response = requests.get(capture_url, timeout=timeout)
+        response.raise_for_status()  # Akan raise HTTPError untuk status code 4xx/5xx
+
+        content_type = response.headers.get('content-type', '').lower()
+        if 'image' not in content_type:
+            print(f"Peringatan: Content-Type dari {capture_url} adalah '{content_type}', diharapkan mengandung 'image'. Tetap mencoba memproses.")
+        
+        image_bytes = response.content
+        if not image_bytes:
+            return None, f"Tidak ada data gambar yang diterima dari {capture_url}."
+
+        image_np = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        
+        if image_np is None:
+            return None, f"Gagal mendekode data gambar dari {capture_url}. Pastikan endpoint mengembalikan format gambar yang valid (JPEG, PNG, dll)."
+        
+        print(f"Gambar berhasil diambil dan didekode dari {capture_url}")
+        return image_np, None
+
+    except requests.exceptions.Timeout:
+        error_msg = f"Timeout ({timeout}s) saat mencoba mengambil gambar dari {capture_url}."
+        print(error_msg)
+        return None, error_msg
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"HTTP error saat mengambil gambar dari {capture_url}: {http_err} (Status: {http_err.response.status_code if http_err.response else 'N/A'})"
+        print(error_msg)
+        return None, error_msg
+    except requests.exceptions.RequestException as req_err:
+        error_msg = f"Kesalahan koneksi saat mengambil gambar dari {capture_url}: {req_err}"
+        print(error_msg)
+        return None, error_msg
+    except Exception as e:
+        error_msg = f"Kesalahan tak terduga saat mengambil gambar dari {capture_url}: {str(e)}"
+        print(error_msg)
+        return None, error_msg
+
+# Fungsi capture_single_frame_from_stream_cv2 dipertahankan jika diperlukan di masa depan,
+# tetapi tidak lagi digunakan oleh capture_and_detect atau api_capture_and_process.
+
+def capture_single_frame_from_stream_cv2(stream_url: str, 
+                                         read_frame_timeout: int = 10, 
+                                         open_stream_timeout_sec: int = 60) -> Tuple[Optional[np.ndarray], Optional[str]]:
+    """
+    Mengambil satu frame dari network stream menggunakan OpenCV.
+    Mengembalikan (frame_numpy_array, error_message).
+    `read_frame_timeout` adalah timeout (detik) untuk loop pembacaan frame setelah stream dibuka.
+    `open_stream_timeout_sec` adalah timeout (detik) yang disarankan untuk FFmpeg saat membuka stream.
+    """
+    cap = None
+    original_ffmpeg_options = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
+    # FFmpeg timeout options (timeout, rw_timeout) adalah dalam mikrodetik.
+    ffmpeg_timeout_us = str(open_stream_timeout_sec * 1000 * 1000) 
+    
+    # Opsi 'timeout' untuk koneksi TCP, 'rw_timeout' untuk operasi baca/tulis setelah terkoneksi.
+    # Format: "key1;value1|key2;value2"
+    # Mengatur timeout koneksi dan read/write ke open_stream_timeout_sec detik.
+    ffmpeg_options_to_set = f"timeout;{ffmpeg_timeout_us}|rw_timeout;{ffmpeg_timeout_us}"
+    
+    print(f"Mengatur OPENCV_FFMPEG_CAPTURE_OPTIONS sementara ke: {ffmpeg_options_to_set} untuk stream: {stream_url}")
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = ffmpeg_options_to_set
+
+    try:
+        print(f"Mencoba membuka stream dengan OpenCV: {stream_url}")
+        # Menggunakan cv2.CAP_FFMPEG secara eksplisit untuk memastikan backend yang benar
+        # dan agar OPENCV_FFMPEG_CAPTURE_OPTIONS lebih mungkin diterapkan.
+        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG) 
+        
+        if not cap.isOpened():
+            error_msg = f"Gagal membuka stream kamera di {stream_url} menggunakan OpenCV (cap.isOpened() mengembalikan false)."
+            print(error_msg)
+            return None, error_msg
+
+        start_time = time.time()
+        frame: Optional[np.ndarray] = None
+        ret = False
+        
+        # Mencoba membaca beberapa frame untuk mendapatkan yang terbaru, membuang yang lama jika ada buffer.
+        # Untuk beberapa stream, frame pertama mungkin lama atau butuh waktu untuk tiba.
+        for i in range(5): # Coba ambil hingga 5 frame, ambil yang terakhir berhasil
+            if time.time() - start_time > read_frame_timeout:
+                error_msg = f"Timeout ({read_frame_timeout}s) saat menunggu frame dari {stream_url} setelah berhasil dibuka (percobaan ke-{i+1})."
+                print(error_msg)
+                # Jangan return di sini dulu, biarkan cap.release() di finally
+                break 
+            
+            temp_ret, temp_frame = cap.read()
+            if temp_ret and temp_frame is not None:
+                ret = True
+                frame = temp_frame
+                print(f"Frame berhasil dibaca pada percobaan ke-{i+1} dari {stream_url}")
+            else:
+                print(f"Gagal membaca frame pada percobaan ke-{i+1} dari {stream_url}. ret={temp_ret}")
+                time.sleep(0.2) # Jeda singkat jika read gagal
+        
+        if not ret or frame is None:
+            return None, f"Gagal membaca frame dari stream {stream_url} setelah beberapa percobaan."
+        return frame, None
+    except Exception as e:
+        return None, f"Error saat menggunakan cv2.VideoCapture untuk {stream_url}: {str(e)}"
+    finally:
+        # Kembalikan OPENCV_FFMPEG_CAPTURE_OPTIONS ke nilai semula
+        if original_ffmpeg_options is None:
+            if "OPENCV_FFMPEG_CAPTURE_OPTIONS" in os.environ:
+                del os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"]
+                print(f"OPENCV_FFMPEG_CAPTURE_OPTIONS dihapus (kembali ke default system) untuk stream: {stream_url}")
+        else:
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = original_ffmpeg_options
+            print(f"OPENCV_FFMPEG_CAPTURE_OPTIONS dikembalikan ke: {original_ffmpeg_options} untuk stream: {stream_url}")
+
+        if cap is not None:
+            print(f"Melepaskan VideoCapture untuk {stream_url}")
+            cap.release()
 @app.template_filter('date')
 def custom_date_filter(value: Union[str, datetime], fmt: Optional[str] = None) -> str:
     if fmt == "Y":
@@ -357,99 +481,82 @@ def get_gemini_description(image_path_for_gemini: str, detected_class_name: str)
             print(f"GEMINI ERROR: Pastikan file gambar ada di path: {image_path_for_gemini} dan dapat diakses oleh Gemini API.")
         return f"Gagal menghasilkan deskripsi dari Gemini: {e}"
 
-@app.route('/capture_and_detect', methods=['POST'])
-@login_required
-def capture_and_detect() -> FlaskResponse:
-    camera_base_ip = get_camera_base_ip()
-    if not camera_base_ip:
-        flash("Alamat IP Kamera belum dikonfigurasi. Tidak dapat mengambil gambar.", "danger")
-        return redirect(url_for('dashboard'))
+def _process_image_data_and_save_detection(
+    original_image_np: np.ndarray, 
+    user_id: int, 
+    upload_folder: str, 
+    yolo_model: Optional[YOLO],
+    gemini_api_key_present: bool
+) -> Tuple[bool, str, Optional[int]]:
+    """
+    Memproses gambar NumPy, melakukan deteksi YOLO, menyimpan gambar, 
+    mendapatkan deskripsi Gemini, dan menyimpan hasil ke database.
 
-    if not model_yolo:
-        flash("Model YOLO tidak berhasil dimuat atau tidak ditemukan. Fitur deteksi tidak tersedia.", "danger")
-        return redirect(url_for('dashboard'))
-    capture_url = f"{camera_base_ip}{CAMERA_CAPTURE_PATH}"
-    print(f"Capture & Detect: Mencoba mengambil gambar dari URL = {capture_url}")
+    Mengembalikan: (success_status, message_or_error, detection_id_if_success)
+    """
+    if yolo_model is None:
+        return False, "Model YOLO tidak dimuat.", None
 
-    request_headers = {'Connection': 'close'}
     try:
-        response = requests.get(capture_url, headers=request_headers, timeout=CAMERA_REQUEST_TIMEOUT)
-        response.raise_for_status()
-        
-        content_type = response.headers.get('Content-Type')
-        if not content_type or not content_type.startswith('image/'):
-            error_message = f"Konten dari ESP32-CAM bukan gambar (Content-Type: {content_type}). URL: {capture_url}"
-            flash(error_message, "danger")
-            print(f"Error: {error_message}. Response text (first 200 chars): {response.text[:200]}")
-            return redirect(url_for('dashboard'))
-
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_image_name = f"capture_{session['user_id']}_{timestamp_str}"
+        base_image_name = f"capture_{user_id}_{timestamp_str}"
         
         original_image_filename = f"{base_image_name}_original.jpg"
-        absolute_original_image_path = os.path.join(app.config['UPLOAD_FOLDER'], original_image_filename)
-        
+        absolute_original_image_path = os.path.join(upload_folder, original_image_filename)
+
         annotated_image_filename = f"{base_image_name}_annotated.jpg"
-        absolute_annotated_image_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_image_filename)
-        relative_annotated_image_path = os.path.join('uploads', annotated_image_filename) # Untuk DB dan template
+        absolute_annotated_image_path = os.path.join(upload_folder, annotated_image_filename)
+        relative_annotated_image_path = os.path.join('uploads', annotated_image_filename)
 
-        with open(absolute_original_image_path, 'wb') as f:
-            f.write(response.content)
-        print(f"Gambar asli disimpan di: {absolute_original_image_path}")
-        flash(f"Gambar asli berhasil diambil dari kamera.", "info")
+        save_success = cv2.imwrite(absolute_original_image_path, original_image_np)
+        if not save_success:
+            return False, "Gagal menyimpan gambar asli.", None
+        print(f"Gambar asli dari browser disimpan di: {absolute_original_image_path}")
 
-        results = model_yolo(absolute_original_image_path, verbose=False)
+        print(f"Melakukan deteksi YOLO pada frame (in-memory) yang diterima dari browser.")
+        results = yolo_model(original_image_np, verbose=False)
 
         detected_class_name = "Tidak Terdeteksi"
         confidence_score_str = "0.00%"
         generative_desc = "Tidak ada objek yang terdeteksi atau model tidak dapat mengklasifikasikan."
         
-        # Default ke gambar asli jika tidak ada deteksi atau error anotasi
-        cv2.imwrite(absolute_annotated_image_path, cv2.imread(absolute_original_image_path)) # Salin asli ke anotasi
-        print(f"Default: Gambar asli disalin ke path anotasi: {absolute_annotated_image_path}")
+        cv2.imwrite(absolute_annotated_image_path, original_image_np) # Default ke gambar asli
 
         if results and results[0].boxes:
-            # results[0].boxes adalah objek Boxes.
-            # Jika Anda ingin deteksi dengan skor tertinggi, Anda bisa mengiterasi atau memastikan urutannya.
-            # Untuk kesederhanaan, kita ambil deteksi pertama yang dikembalikan.
-            # Objek Boxes memiliki atribut seperti .cls, .conf, .xyxy, dll.
-            # Setiap atribut ini adalah tensor. Kita ambil elemen pertama [0] dari tensor tersebut.
             first_detection_box = results[0].boxes[0] 
             class_id = int(first_detection_box.cls[0].item())
-            detected_class_name = model_yolo.names.get(class_id, f"Unknown Class {class_id}") # Lebih deskriptif jika nama tidak ada
+            detected_class_name = yolo_model.names.get(class_id, f"Unknown Class {class_id}")
             confidence_score_val = float(first_detection_box.conf[0].item())
             confidence_score_str = f"{confidence_score_val*100:.2f}%"
             
-            flash(f"Deteksi: {detected_class_name} dengan akurasi: {confidence_score_str}", "info")
+            print(f"Deteksi: {detected_class_name} dengan akurasi: {confidence_score_str}")
 
             try:
-                annotated_image_np = results[0].plot() # Menghasilkan array NumPy (BGR)
+                annotated_image_np = results[0].plot()
                 cv2.imwrite(absolute_annotated_image_path, annotated_image_np)
                 print(f"Gambar teranotasi disimpan di: {absolute_annotated_image_path}")
-                flash(f"Gambar hasil deteksi disimpan sebagai: {annotated_image_filename}", "success")
             except Exception as plot_err:
                 print(f"Error saat membuat atau menyimpan gambar anotasi: {plot_err}. Menggunakan gambar asli.")
-                flash(f"Error saat membuat anotasi: {plot_err}. Menampilkan gambar asli.", "warning")
-                # Gambar asli sudah disalin ke path anotasi sebelumnya
+                # Gambar asli sudah disalin, jadi tidak perlu tindakan khusus
 
-            if GEMINI_API_KEY:
+            if gemini_api_key_present:
                 generative_desc = get_gemini_description(absolute_original_image_path, detected_class_name)
             else:
                 generative_desc = "Fitur deskripsi Gemini tidak aktif (API Key tidak ditemukan)."
         else:
-            flash("Tidak ada objek yang terdeteksi oleh YOLO.", "warning")
-            # Gambar asli sudah disalin ke path anotasi, jadi tidak perlu tindakan khusus di sini
+            print("Tidak ada objek yang terdeteksi oleh YOLO.")
 
         db_conn = None
         cursor = None
         try:
             db_conn = get_db_connection()
-            if not db_conn: return redirect(url_for('dashboard'))
+            if not db_conn:
+                return False, "Gagal terhubung ke database untuk menyimpan deteksi.", None
             
             cursor = db_conn.cursor()
             sql = "INSERT INTO detections (user_id, image_name, image_path, detection_class, confidence_score, generative_description, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s)"
             current_timestamp = datetime.now()
-            val = (session['user_id'], 
+            val = (user_id, 
                    annotated_image_filename, 
                    relative_annotated_image_path, 
                    detected_class_name, 
@@ -459,25 +566,104 @@ def capture_and_detect() -> FlaskResponse:
             cursor.execute(sql, val)
             db_conn.commit()
             detection_id = cursor.lastrowid
-            return redirect(url_for('hasil', detection_id=detection_id))
+            return True, "Deteksi berhasil diproses dan disimpan.", detection_id
         except mysql.connector.Error as err:
-            flash(f"Gagal menyimpan hasil deteksi ke database: {err}", "danger")
+            print(f"Gagal menyimpan hasil deteksi ke database: {err}")
             if db_conn and db_conn.is_connected(): db_conn.rollback()
-            return redirect(url_for('dashboard'))
+            return False, f"Gagal menyimpan hasil deteksi ke database: {err}", None
         finally:
             if cursor: cursor.close()
             if db_conn and db_conn.is_connected(): db_conn.close()
 
-    except requests.exceptions.Timeout:
-        flash(f"Timeout saat mengambil gambar dari ESP32-CAM ({capture_url}) setelah {CAMERA_REQUEST_TIMEOUT} detik.", "danger")
-        return redirect(url_for('dashboard'))
-    except requests.exceptions.RequestException as e:
-        flash(f"Gagal mengambil gambar dari ESP32-CAM: {e}", "danger")
-        return redirect(url_for('dashboard'))
     except Exception as e:
-        flash(f"Terjadi kesalahan tak terduga: {e}", "danger")
-        print(f"Kesalahan tak terduga di capture_and_detect: {e}")
-        return redirect(url_for('dashboard'))
+        print(f"Kesalahan tak terduga saat memproses gambar: {e}")
+        return False, f"Terjadi kesalahan tak terduga saat memproses gambar: {e}", None
+
+@app.route('/process_browser_capture', methods=['POST'])
+@login_required
+def process_browser_capture() -> Union[FlaskResponse, Tuple[Dict[str, Any], int]]:
+    if not model_yolo:
+        return {"status": "error", "message": "Model YOLO tidak berhasil dimuat."}, 503
+
+    data = request.get_json()
+    if not data or 'image_data_url' not in data:
+        return {"status": "error", "message": "Data gambar tidak ditemukan dalam permintaan."}, 400
+
+    image_data_url = data['image_data_url']
+    
+    try:
+        # Pisahkan header dari data base64
+        # Format data URL: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..."
+        header, encoded_data = image_data_url.split(',', 1)
+        image_bytes = base64.b64decode(encoded_data)
+        image_np = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+
+        if image_np is None:
+            return {"status": "error", "message": "Gagal mendekode data gambar dari base64."}, 400
+
+        user_id = session['user_id']
+        
+        success, message, detection_id = _process_image_data_and_save_detection(
+            image_np, 
+            user_id, 
+            app.config['UPLOAD_FOLDER'], 
+            model_yolo, 
+            bool(GEMINI_API_KEY)
+        )
+
+        if success and detection_id is not None:
+            return {"status": "success", "redirect_url": url_for('hasil', detection_id=detection_id), "message": message}, 200
+        else:
+            return {"status": "error", "message": message or "Gagal memproses gambar."}, 500
+
+    except Exception as e:
+        print(f"Error di /process_browser_capture: {e}")
+        return {"status": "error", "message": f"Kesalahan server internal: {str(e)}"}, 500
+
+@app.route('/get_snapshot_for_canvas')
+@login_required
+def get_snapshot_for_canvas() -> Union[FlaskResponse, Tuple[Dict[str, Any], int]]:
+    camera_base_ip = get_camera_base_ip()
+    if not camera_base_ip:
+        return {"status": "error", "message": "IP Kamera tidak dikonfigurasi."}, 400
+
+    # Meskipun tidak digunakan langsung untuk snapshot, ini bisa jadi indikasi sistem belum siap
+    # if not model_yolo:
+    #     return {"status": "error", "message": "Model YOLO tidak siap."}, 503
+
+    # Tentukan URL dan metode capture berdasarkan apakah CAMERA_CAPTURE_PATH adalah stream atau bukan
+    # Ini penting untuk menghindari timeout pada /stream jika menggunakan requests.get().content
+    # Kita asumsikan jika CAMERA_CAPTURE_PATH sama dengan CAMERA_STREAM_PATH, itu adalah MJPEG stream.
+    capture_path_to_use = CAMERA_CAPTURE_PATH
+    snapshot_url = f"{camera_base_ip}{capture_path_to_use}"
+    print(f"Snapshot for Canvas: Mencoba mengambil gambar dari {snapshot_url}")
+
+    if capture_path_to_use == CAMERA_STREAM_PATH:
+        print(f"Snapshot for Canvas: Menggunakan OpenCV untuk mengambil frame dari stream URL: {snapshot_url}")
+        # Sesuaikan timeout untuk OpenCV jika perlu, misal open_stream_timeout_sec=15, read_frame_timeout=10
+        image_np, error_msg = capture_single_frame_from_stream_cv2(
+            snapshot_url, open_stream_timeout_sec=20, read_frame_timeout=10 
+        )
+    else: # Asumsikan ini adalah endpoint snapshot statis
+        image_np, error_msg = capture_single_frame_from_http_endpoint(
+            snapshot_url, timeout=CAMERA_REQUEST_TIMEOUT # Timeout 60s mungkin terlalu lama untuk snapshot
+        )
+    if error_msg or image_np is None:
+        print(f"Snapshot for Canvas: Error - {error_msg}")
+        return {"status": "error", "message": error_msg or "Gagal mengambil snapshot dari kamera."}, 502
+
+    try:
+        is_success, buffer = cv2.imencode(".jpg", image_np)
+        if not is_success:
+            return {"status": "error", "message": "Gagal meng-encode snapshot ke JPEG."}, 500
+        
+        image_base64 = base64.b64encode(buffer).decode('utf-8')
+        image_data_url = f"data:image/jpeg;base64,{image_base64}"
+        
+        return {"status": "success", "image_data_url": image_data_url}, 200
+    except Exception as e:
+        print(f"Snapshot for Canvas: Error encoding image - {str(e)}")
+        return {"status": "error", "message": f"Kesalahan saat memproses snapshot: {str(e)}"}, 500
 
 @app.route('/uji_kamera')
 @login_required
@@ -508,29 +694,29 @@ def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]
     if not model_yolo:
         return {"error": "Model YOLO tidak berhasil dimuat."}, 503
 
-    capture_url: str = f"{camera_base_ip}{CAMERA_CAPTURE_PATH}"
-    print(f"API Capture: Mencoba mengambil gambar dari URL = {capture_url}")
+    # Tentukan URL dan metode capture
+    capture_path_to_use = CAMERA_CAPTURE_PATH
+    single_image_capture_url: str = f"{camera_base_ip}{capture_path_to_use}"
+    print(f"API Capture: Mencoba mengambil gambar dari URL = {single_image_capture_url}")
 
-    request_headers = {'Connection': 'close'}
     try:
-        response_cam = requests.get(capture_url, headers=request_headers, timeout=CAMERA_REQUEST_TIMEOUT)
-        response_cam.raise_for_status()
+        img_np: Optional[np.ndarray] = None
+        error_msg: Optional[str] = None
 
-        content_type = response_cam.headers.get('Content-Type')
-        if not content_type or not content_type.startswith('image/'):
-            error_msg = f"Konten dari kamera bukan gambar (Content-Type: {content_type}). URL: {capture_url}"
-            print(f"API Error: {error_msg}")
-            return {"error": error_msg}, 502
+        if capture_path_to_use == CAMERA_STREAM_PATH:
+            print(f"API Capture: Menggunakan OpenCV untuk mengambil frame dari stream URL: {single_image_capture_url}")
+            img_np, error_msg = capture_single_frame_from_stream_cv2(
+                single_image_capture_url, open_stream_timeout_sec=20, read_frame_timeout=10
+            )
+        else: # Asumsikan endpoint snapshot statis
+            img_np, error_msg = capture_single_frame_from_http_endpoint(
+                single_image_capture_url, timeout=CAMERA_REQUEST_TIMEOUT)
+        if error_msg or img_np is None:
+            print(f"API Error capture_single_frame_from_http_endpoint ({single_image_capture_url}): {error_msg}")
+            return {"error": f"Gagal mengambil gambar dari kamera ({CAMERA_CAPTURE_PATH}): {error_msg}"}, 502
 
-        image_bytes = response_cam.content
         try:
-            # Decode byte gambar ke array NumPy (BGR)
-            nparr = np.frombuffer(image_bytes, np.uint8)
-            img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img_np is None:
-                print("API Error: Gagal men-decode gambar dari bytes yang diterima dari kamera.")
-                return {"error": "Gagal memproses gambar dari kamera (decode error)."}, 500
-
+            # img_np sudah merupakan array NumPy (BGR) dari capture_single_frame_from_http_endpoint
             # Lakukan inferensi YOLO pada array NumPy
             results = model_yolo(img_np, verbose=False)
             # results[0].plot() mengembalikan NumPy array (BGR) dari gambar dengan deteksi.
@@ -550,11 +736,8 @@ def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]
             # Tangani error spesifik dari YOLO atau pemrosesan gambar jika ada
             print(f"API Error saat pemrosesan YOLO: {yolo_err}")
             return {"error": f"Error saat pemrosesan YOLO: {str(yolo_err)}"}, 500
-            
-    except requests.exceptions.Timeout:
-        return {"error": f"Timeout saat menghubungi kamera di {capture_url} setelah {CAMERA_REQUEST_TIMEOUT} detik."}, 504
-    except requests.exceptions.RequestException as e:
-        return {"error": f"Error koneksi ke kamera: {str(e)}"}, 502
+
+    # Error dari capture_single_frame_from_stream_cv2 sudah ditangani di atas
     except Exception as e:
         print(f"API Error internal: {e}")
         return {"error": f"Terjadi kesalahan internal server: {str(e)}"}, 500

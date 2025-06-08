@@ -1,216 +1,120 @@
-// Pastikan library yang dibutuhkan sudah terinstal di Arduino IDE Anda
-// (WiFi, ESPmDNS, WebServer, esp_camera)
+// Contoh Firmware ESP32-CAM untuk Streaming dan Capture
+// Pastikan Anda memilih board "AI Thinker ESP32-CAM" di Arduino IDE
+// dan sesuaikan model kamera jika perlu (misalnya CAMERA_MODEL_WROVER_KIT, dll.)
 
 #include "esp_camera.h"
 #include <WiFi.h>
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
-#include "esp_http_server.h" // Untuk httpd_resp_set_type, dll. jika menggunakan ESP-IDF style server
-// Jika menggunakan library WebServer.h standar Arduino:
-#include <WebServer.h>
+#include "soc/soc.h"             // Disable brownout problems
+#include "soc/rtc_cntl_reg.h"    // Disable brownout problems
+#include "driver/rtc_io.h"
+#include <WebServer.h> // Gunakan WebServer standar
 
 // Ganti dengan kredensial WiFi Anda
 const char* ssid = "Gopo Network";
 const char* password = "sister23";
 
-// Definisikan pin kamera sesuai dengan modul ESP32-CAM Anda
-// Model AI-THINKER
-#define PWDN_GPIO_NUM     32
-#define RESET_GPIO_NUM    -1
-#define XCLK_GPIO_NUM      0
-#define SIOD_GPIO_NUM     26
-#define SIOC_GPIO_NUM     27
-#define Y9_GPIO_NUM       35
-#define Y8_GPIO_NUM       34
-#define Y7_GPIO_NUM       39
-#define Y6_GPIO_NUM       36
-#define Y5_GPIO_NUM       21
-#define Y4_GPIO_NUM       19
-#define Y3_GPIO_NUM       18
-#define Y2_GPIO_NUM        5
-#define VSYNC_GPIO_NUM    25
-#define HREF_GPIO_NUM     23
-#define PCLK_GPIO_NUM     22
+// Definisikan model kamera Anda
+// #define CAMERA_MODEL_WROVER_KIT
+// #define CAMERA_MODEL_ESP_EYE
+// #define CAMERA_MODEL_M5STACK_PSRAM
+// #define CAMERA_MODEL_M5STACK_V2_PSRAM
+// #define CAMERA_MODEL_M5STACK_WIDE
+// #define CAMERA_MODEL_M5STACK_ESP32CAM
+#define CAMERA_MODEL_AI_THINKER // Model paling umum
+// #define CAMERA_MODEL_TTGO_T_JOURNAL
+
+// Hapus #include "camera_pins.h" dan tambahkan definisi pin di sini
+// Pin definitions for CAMERA_MODEL_AI_THINKER
+#if defined(CAMERA_MODEL_AI_THINKER)
+  #define PWDN_GPIO_NUM     32
+  #define RESET_GPIO_NUM    -1 // -1 = not used
+  #define XCLK_GPIO_NUM      0
+  #define SIOD_GPIO_NUM     26 // SDA
+  #define SIOC_GPIO_NUM     27 // SCL
+
+  #define Y9_GPIO_NUM       35 // D7
+  #define Y8_GPIO_NUM       34 // D6
+  #define Y7_GPIO_NUM       39 // D5
+  #define Y6_GPIO_NUM       36 // D4
+  #define Y5_GPIO_NUM       21 // D3
+  #define Y4_GPIO_NUM       19 // D2
+  #define Y3_GPIO_NUM       18 // D1
+  #define Y2_GPIO_NUM        5 // D0
+  #define VSYNC_GPIO_NUM    25
+  #define HREF_GPIO_NUM     23
+  #define PCLK_GPIO_NUM     22
+#else
+  #error "Camera model not selected or pins not defined for selected model"
+#endif
 
 WebServer server(80);
 
-// --- Pengaturan untuk Kualitas Stream dan Capture ---
-#define DEFAULT_STREAM_FRAMESIZE FRAMESIZE_VGA // Misalnya VGA (640x480) untuk streaming
-#define DEFAULT_STREAM_QUALITY 15            // Kualitas JPEG untuk streaming (0-63, lebih tinggi = kualitas lebih rendah, ukuran lebih kecil), sebelumnya 12
-
-#define CAPTURE_FRAMESIZE FRAMESIZE_VGA      // Turunkan ke VGA (640x480) untuk capture, demi kecepatan maksimal, sebelumnya SVGA
-#define CAPTURE_QUALITY 20                   // Naikkan lagi (turunkan kualitas gambar) untuk encoding JPEG lebih cepat, sebelumnya 15
-
-// Variabel global untuk menyimpan pengaturan stream default
-framesize_t streamFrameSize = DEFAULT_STREAM_FRAMESIZE;
-int streamJpegQuality = DEFAULT_STREAM_QUALITY;
-
-// Handler untuk mengambil foto berkualitas tinggi
-void handleCapture() {
-  camera_fb_t * fb = NULL;
-  sensor_t * s = esp_camera_sensor_get();
-  if (!s) {
-    Serial.println("handleCapture: Gagal mendapatkan sensor kamera.");
-    server.send(500, "text/plain", "Gagal mendapatkan sensor kamera");
-    return;
-  }
-
-  Serial.println("handleCapture: Menerima permintaan untuk mengambil gambar...");
-  unsigned long time_start_capture_func = millis();
-
-  // Simpan pengaturan stream saat ini
-  framesize_t original_frame_size = s->status.framesize;
-  int original_jpeg_quality = s->pixformat == PIXFORMAT_JPEG ? s->status.quality : streamJpegQuality;
-  unsigned long time_after_get_orig_settings = millis();
-  Serial.printf("handleCapture: Waktu setelah get original settings: %lu ms (delta: %lu ms)\n", time_after_get_orig_settings, time_after_get_orig_settings - time_start_capture_func);
-
-  // Atur sensor untuk kualitas capture terbaik
-  framesize_t capture_size_to_set = CAPTURE_FRAMESIZE;
-  if (!psramFound() && CAPTURE_FRAMESIZE > FRAMESIZE_SVGA) {
-    Serial.println("handleCapture: PSRAM tidak ditemukan, memaksa capture ke SVGA atau lebih rendah jika CAPTURE_FRAMESIZE terlalu besar.");
-    capture_size_to_set = FRAMESIZE_SVGA; // Batasi ke SVGA jika tidak ada PSRAM dan setting capture terlalu tinggi
-  }
-
-  s->set_framesize(s, capture_size_to_set);
-  s->set_quality(s, CAPTURE_QUALITY);
-  unsigned long time_after_set_capture_settings = millis();
-  Serial.printf("handleCapture: Sensor diatur ke framesize %d, quality %d untuk capture.\n", s->status.framesize, s->status.quality);
-  Serial.printf("handleCapture: Waktu setelah set capture settings: %lu ms (delta: %lu ms)\n", time_after_set_capture_settings, time_after_set_capture_settings - time_after_get_orig_settings);
-
-  fb = esp_camera_fb_get();
-  unsigned long time_after_fb_get = millis();
-  Serial.printf("handleCapture: Waktu setelah esp_camera_fb_get: %lu ms (delta: %lu ms)\n", time_after_fb_get, time_after_fb_get - time_after_set_capture_settings);
-
-  // Kembalikan sensor ke pengaturan stream SEGERA setelah fb didapatkan
-  s->set_framesize(s, original_frame_size);
-  s->set_quality(s, original_jpeg_quality);
-  unsigned long time_after_restore_settings = millis();
-  Serial.printf("handleCapture: Sensor dikembalikan ke framesize %d, quality %d (pengaturan stream).\n", s->status.framesize, s->status.quality);
-  Serial.printf("handleCapture: Waktu setelah restore settings: %lu ms (delta: %lu ms)\n", time_after_restore_settings, time_after_restore_settings - time_after_fb_get);
-
-  if (!fb) {
-    Serial.println("handleCapture: Pengambilan gambar dari kamera gagal (esp_camera_fb_get mengembalikan NULL).");
-    server.send(500, "text/plain", "Gagal mengambil gambar dari kamera");
-    Serial.printf("handleCapture: Total waktu proses (gagal fb_get): %lu ms\n", millis() - time_start_capture_func);
-    return;
-  }
-
-  Serial.printf("handleCapture: Gambar berhasil diambil. Ukuran: %zu bytes, Format: %d\n", fb->len, fb->format);
-  unsigned long time_after_fb_check_ok = millis();
-  Serial.printf("handleCapture: Waktu setelah fb check OK: %lu ms (delta: %lu ms)\n", time_after_fb_check_ok, time_after_fb_check_ok - time_after_restore_settings);
-
-  if (fb->format != PIXFORMAT_JPEG) {
-    Serial.printf("handleCapture: Format frame yang diambil bukan JPEG (format: %d). Diharapkan: %d.\n", fb->format, PIXFORMAT_JPEG);
-    esp_camera_fb_return(fb); // Kembalikan frame buffer
-    server.send(500, "text/plain", "Format gambar yang diambil bukan JPEG");
-    Serial.printf("handleCapture: Total waktu proses (format salah): %lu ms\n", millis() - time_start_capture_func);
-    return;
-  }
-
-  // Periksa apakah client masih terhubung
-  WiFiClient client = server.client();
-  unsigned long time_before_client_check = millis();
-  if (!client || !client.connected()) {
-    Serial.println("handleCapture: Client terputus sebelum pemrosesan gambar.");
-    esp_camera_fb_return(fb);
-    // Tidak bisa mengirim response ke client yang sudah terputus
-    Serial.printf("handleCapture: Waktu setelah client check (terputus): %lu ms (delta: %lu ms)\n", millis(), millis() - time_before_client_check);
-    Serial.printf("handleCapture: Total waktu proses (client terputus): %lu ms\n", millis() - time_start_capture_func);
-    return;
-  }
-  unsigned long time_after_client_check_ok = millis();
-  Serial.printf("handleCapture: Waktu setelah client check (OK): %lu ms (delta: %lu ms)\n", time_after_client_check_ok, time_after_client_check_ok - time_before_client_check);
-
-  // Mengirim header HTTP secara eksplisit
-  server.sendHeader("Access-Control-Allow-Origin", "*"); // Izinkan CORS
-  server.setContentLength(fb->len);
-  // Kirim status 200 OK dengan Content-Type. String kosong menandakan body akan dikirim terpisah.
-  server.send(200, "image/jpeg", ""); 
-
-  unsigned long time_after_send_headers = millis();
-  Serial.println("handleCapture: Header HTTP telah dikirim. Mencoba menulis data gambar ke client...");
-  Serial.printf("handleCapture: Waktu setelah send headers: %lu ms (delta: %lu ms)\n", time_after_send_headers, time_after_send_headers - time_after_client_check_ok);
-
-  size_t sent_len = client.write(fb->buf, fb->len);
-  unsigned long time_after_write_data = millis();
-
-  if (sent_len == fb->len) {
-    Serial.printf("handleCapture: Data gambar berhasil dikirim (%zu bytes).\n", sent_len);
-  } else {
-    Serial.printf("handleCapture: Gagal mengirim data gambar secara lengkap. Terkirim %zu dari %zu bytes.\n", sent_len, fb->len);
-    // Client mungkin menutup koneksi saat transfer.
-  }
-  Serial.printf("handleCapture: Waktu setelah write data: %lu ms (delta: %lu ms)\n", time_after_write_data, time_after_write_data - time_after_send_headers);
-
-  esp_camera_fb_return(fb); // Kembalikan frame buffer
-  unsigned long time_after_fb_return = millis();
-  Serial.println("handleCapture: Frame buffer telah dikembalikan. Permintaan selesai diproses.");
-  Serial.printf("handleCapture: Waktu setelah fb_return: %lu ms (delta: %lu ms)\n", time_after_fb_return, time_after_fb_return - time_after_write_data);
-  Serial.printf("handleCapture: Total waktu proses (sukses): %lu ms\n", time_after_fb_return - time_start_capture_func);
-}
-
-// Handler untuk streaming MJPEG
+// Handler untuk stream MJPEG
 void handleStream() {
   WiFiClient client = server.client();
-  if (!client.connected()) {
-    Serial.println("handleStream: Client terputus.");
-    return;
-  }
+  String response = "HTTP/1.1 200 OK\r\n";
+  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n";
+  response += "\r\n";
+  server.sendContent(response);
 
-  // Send HTTP headers for MJPEG stream directly using client.print to save memory and avoid String objects
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: multipart/x-mixed-replace; boundary=--frame\r\n");
-  client.print("Access-Control-Allow-Origin: *\r\n");
-  // Penting: Beritahu client untuk menutup koneksi ketika stream berakhir atau jika server menutupnya.
-  // WebServer.h biasanya menangani ini, tetapi eksplisit bisa membantu dalam beberapa kasus.
-  client.print("Connection: close\r\n"); 
-  client.print("\r\n");
-  
-  Serial.println("handleStream: Memulai streaming MJPEG...");
-  unsigned long lastFrameTime = 0;
-
-  while (client.connected()) {
-    // Batasi frame rate untuk tidak membebani ESP32 atau jaringan
-    if (millis() - lastFrameTime < 200) { // Target sekitar 5 FPS (1000ms / 200ms = 5 FPS), sebelumnya 100ms
-      delay(1); // Beri kesempatan task lain berjalan
-      continue;
-    }
-    lastFrameTime = millis();
-
-    camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t * fb = NULL;
+  while (true) {
+    fb = esp_camera_fb_get();
     if (!fb) {
-      Serial.println("handleStream: Gagal mengambil frame untuk stream.");
-      // Mungkin kirim pesan error ke client atau cukup skip frame ini
-      delay(100); // Tunggu sebentar sebelum mencoba lagi
+      Serial.println("Camera capture failed");
+      // esp_camera_fb_return(fb); // Kembalikan buffer jika error
+      // break; // Hentikan loop jika gagal terus menerus
+      delay(100); // Coba lagi setelah jeda singkat
       continue;
     }
 
-    // Send MJPEG frame header using client.print
+    if (!client.connected()) {
+      Serial.println("Client disconnected from stream");
+      esp_camera_fb_return(fb);
+      break;
+    }
+    
     client.print("--frame\r\n");
     client.print("Content-Type: image/jpeg\r\n");
     client.print("Content-Length: ");
-    client.print(fb->len); // Mengirim panjang sebagai angka, lalu baris baru
+    client.print(fb->len);
     client.print("\r\n\r\n");
-    // Send image data
     client.write(fb->buf, fb->len);
-    client.print("\r\n"); // Akhir dari frame, diperlukan oleh beberapa client
+    client.print("\r\n");
     
-    esp_camera_fb_return(fb);
+    esp_camera_fb_return(fb); // Penting untuk melepaskan buffer frame
+
+    if (!client.connected()) {
+      Serial.println("Client disconnected during stream write");
+      break;
+    }
+    // delay(66); // Untuk ~15 FPS, sesuaikan jika perlu. Tanpa delay akan secepat mungkin.
   }
-  Serial.println("handleStream: Streaming MJPEG dihentikan, client terputus.");
 }
 
-void startCameraServer() {
-  // Endpoint untuk capture foto
-  server.on("/capture_image", HTTP_GET, handleCapture);
-  server.on("/stream", HTTP_GET, handleStream); // Endpoint untuk streaming MJPEG
+// Handler untuk mengambil satu foto (snapshot)
+void handleCapture() {
+  camera_fb_t * fb = NULL;
+  fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("Camera capture failed");
+    server.send(500, "text/plain", "Failed to capture image");
+    return;
+  }
 
-  server.begin();
-  Serial.println("HTTP server started");
+  server.setContentLength(fb->len);
+  server.sendHeader("Content-Type", "image/jpeg");
+  server.sendHeader("Access-Control-Allow-Origin", "*"); // Izinkan CORS jika diakses dari domain lain
+  server.send(200, "image/jpeg", ""); // Header dulu
+  
+  WiFiClient client = server.client();
+  client.write(fb->buf, fb->len); // Kirim data gambar
+
+  esp_camera_fb_return(fb);
 }
 
 void setup() {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
@@ -231,27 +135,30 @@ void setup() {
   config.pin_pclk = PCLK_GPIO_NUM;
   config.pin_vsync = VSYNC_GPIO_NUM;
   config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM;
-  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.pixel_format = PIXFORMAT_JPEG; // Untuk capture JPEG
+  config.pixel_format = PIXFORMAT_JPEG; // PIXFORMAT_RGB565, PIXFORMAT_YUV422
+  
+  // Frame size - pilih yang sesuai, resolusi tinggi butuh PSRAM dan bisa lebih lambat
+  // Untuk Kamera 5MP (seperti OV5640), gunakan FRAMESIZE_QSXGA atau resolusi tinggi lainnya.
+  // Pastikan modul ESP32-CAM Anda memiliki PSRAM yang cukup.
+  config.frame_size = FRAMESIZE_QSXGA; // (2560x1920) - Untuk kamera 5MP
+  // config.frame_size = FRAMESIZE_UXGA; // (1600x1200)
+  // config.frame_size = FRAMESIZE_SXGA; // (1280x1024)
+  // config.frame_size = FRAMESIZE_XGA;  // (1024x768)
+  // config.frame_size = FRAMESIZE_SVGA; // (800x600) // Dikomentari karena QSXGA dipilih
+  // config.frame_size = FRAMESIZE_VGA;  // (640x480)
+  // config.frame_size = FRAMESIZE_CIF;  // (352x288)
+  // config.frame_size = FRAMESIZE_QVGA; // (320x240)
 
-  // Atur konfigurasi awal untuk STREAMING
-  config.frame_size = streamFrameSize; 
-  config.jpeg_quality = streamJpegQuality; 
+  config.jpeg_quality = 12; // 0-63, angka lebih rendah berarti kualitas lebih tinggi. Untuk 5MP, 10-15 adalah awal yang baik.
+  config.fb_count = 1;      // Jika PSRAM lebih banyak, bisa > 1. Untuk stream, 1 atau 2 cukup.
+  config.fb_location = CAMERA_FB_IN_PSRAM; // Gunakan PSRAM untuk frame buffer
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
-  if (psramFound()) {
-    config.fb_count = 2; // Gunakan 2 frame buffer jika ada PSRAM
-    Serial.println("PSRAM ditemukan, menggunakan 2 frame buffer.");
-  } else {
-    // Jika tidak ada PSRAM, mungkin perlu frame size lebih kecil untuk capture
-    // dan pastikan streamFrameSize juga tidak terlalu besar.
-    // CAPTURE_FRAMESIZE akan disesuaikan di handleCapture jika tidak ada PSRAM.
-    Serial.println("PSRAM tidak ditemukan, menggunakan 1 frame buffer. Kualitas capture mungkin terbatas.");
-    config.fb_count = 1;
-  }
 
   // Camera init
   esp_err_t err = esp_camera_init(&config);
@@ -260,27 +167,71 @@ void setup() {
     return;
   }
 
+  // Dapatkan pointer ke sensor untuk penyesuaian spesifik jika diperlukan
   sensor_t * s = esp_camera_sensor_get();
-  // Atur parameter sensor jika perlu (misalnya, flip, mirror, dll.)
-  // s->set_vflip(s, 1); // flip it on screen
-  // s->set_hmirror(s, 1); // mirror it on screen
+  if (s != NULL) { // Pastikan sensor pointer valid
+    Serial.printf("Sensor PID: 0x%02x, Version: 0x%02x\n", s->id.PID, s->id.VER); // Cetak info sensor
+    if (s->id.PID == OV5640_PID) {
+      Serial.println("OV5640 sensor detected.");
+      // Contoh penyesuaian untuk OV5640 (aktifkan dan sesuaikan jika perlu):
+      // Umumnya, OV5640 memiliki orientasi dan warna default yang baik.
+      // s->set_vflip(s, 0);       // Vertikal flip: 0 = normal, 1 = flipped
+      // s->set_hmirror(s, 0);     // Horizontal mirror: 0 = normal, 1 = mirrored
+      // s->set_brightness(s, 0);  // Kecerahan: -2 (gelap) hingga 2 (terang)
+      // s->set_contrast(s, 0);    // Kontras: -2 hingga 2
+      // s->set_saturation(s, 0);  // Saturasi: -2 (grayscale) hingga 2 (sangat jenuh)
+      // s->set_special_effect(s, 0); // Efek khusus: 0 (normal), 1 (negatif), dll.
+      // s->set_whitebal(s, 1);    // White Balance otomatis: 0 = mati, 1 = nyala
+      // s->set_awb_gain(s, 1);    // Auto White Balance Gain: 0 = mati, 1 = nyala
+      // s->set_wb_mode(s, 0);     // Mode White Balance: 0 (auto), 1 (sunny), 2 (cloudy), 3 (office), 4 (home)
+      // Untuk kualitas gambar yang lebih baik pada OV5640, beberapa pengaturan mungkin perlu dipertimbangkan:
+      // s->set_exposure_ctrl(s, 1); // Aktifkan kontrol eksposur otomatis
+      // s->set_aec_value(s, 300);   // Sesuaikan nilai AEC (Auto Exposure Control) jika perlu (0-1200)
+      // s->set_gain_ctrl(s, 1);     // Aktifkan kontrol gain otomatis
+      // s->set_agc_gain(s, 0);      // Set AGC gain (0-30)
+      // s->set_gainceiling(s, GAINCEILING_2X); // Batas atas AGC gain (mis. GAINCEILING_2X, _4X, ..., _128X)
+    } else {
+      Serial.printf("Sensor is NOT OV5640 (PID: 0x%x). No OV5640-specific settings applied.\n", s->id.PID);
+    }
+  }
+  // drop down frame size for higher initial frame rate
+  // s->set_framesize(s, FRAMESIZE_QVGA);
+
 
   // WiFi connection
   WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi...");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println("");
   Serial.println("WiFi connected");
-  Serial.print("Camera Ready! Use 'http://");
+  Serial.print("Camera Stream Ready! Go to: http://");
   Serial.print(WiFi.localIP());
-  Serial.println("' to connect");
+  Serial.println("/stream");
+  Serial.print("Camera Capture Ready! Go to: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/capture");
 
-  startCameraServer();
+
+  // Setup server routes
+  server.on("/stream", HTTP_GET, handleStream);
+  server.on("/capture", HTTP_GET, handleCapture);
+  
+  server.on("/", HTTP_GET, [](){
+    server.send(200, "text/html", 
+      "<!DOCTYPE html><html><head><title>ESP32-CAM</title></head><body>"
+      "<h1>ESP32-CAM Server</h1>"
+      "<p><a href='/stream'>Stream</a></p>"
+      "<p><a href='/capture'>Capture Single Photo</a></p>"
+      "</body></html>");
+  });
+
+  server.begin();
+  Serial.println("HTTP server started");
 }
 
 void loop() {
   server.handleClient();
-  delay(2); // Sedikit delay untuk stabilitas
 }

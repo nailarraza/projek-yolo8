@@ -216,21 +216,38 @@ def capture_single_frame_from_stream_cv2(stream_url: str,
     print(f"Mengatur OPENCV_FFMPEG_CAPTURE_OPTIONS sementara ke: {ffmpeg_options_to_set} untuk stream: {stream_url}")
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = ffmpeg_options_to_set
 
+    cap = None # Initialize cap here for the finally block
     try:
-        print(f"Mencoba membuka stream dengan OpenCV: {stream_url}")
-        # Menggunakan cv2.CAP_FFMPEG secara eksplisit untuk memastikan backend yang benar
-        # dan agar OPENCV_FFMPEG_CAPTURE_OPTIONS lebih mungkin diterapkan.
-        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG) 
+        max_open_attempts = 3
+        attempt_delay_sec = 1.5  # Tingkatkan delay antar percobaan menjadi 1.5 detik
+
+        for attempt in range(max_open_attempts):
+            print(f"Mencoba membuka stream dengan OpenCV: {stream_url} (Attempt {attempt + 1}/{max_open_attempts})")
+            # Menggunakan cv2.CAP_FFMPEG secara eksplisit untuk memastikan backend yang benar
+            # dan agar OPENCV_FFMPEG_CAPTURE_OPTIONS lebih mungkin diterapkan.
+            current_cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            
+            if current_cap.isOpened():
+                cap = current_cap # Assign to the outer scope cap
+                print(f"Stream berhasil dibuka pada attempt {attempt + 1}")
+                break
+            else:
+                print(f"Gagal membuka stream pada attempt {attempt + 1} (cap.isOpened() false). Menunggu {attempt_delay_sec}s sebelum mencoba lagi...")
+                if current_cap is not None: # Release if VideoCapture object was created but not opened
+                    current_cap.release()
+                if attempt < max_open_attempts - 1: # Don't sleep on the last attempt
+                    time.sleep(attempt_delay_sec)
         
-        if not cap.isOpened():
-            error_msg = f"Gagal membuka stream kamera di {stream_url} menggunakan OpenCV (cap.isOpened() mengembalikan false)."
+        if cap is None or not cap.isOpened(): # Check after all attempts
+            error_msg = (f"Gagal membuka stream kamera di {stream_url} setelah {max_open_attempts} percobaan. "
+                         "Pastikan kamera aktif, stream URL benar, dan tidak ada klien lain yang menggunakan stream secara eksklusif (misalnya, tab browser lain atau aplikasi lain). "
+                         "Jika Anda baru saja menghentikan stream di browser, tunggu beberapa saat sebelum mencoba lagi.")
             print(error_msg)
             return None, error_msg
 
         start_time = time.time()
         frame: Optional[np.ndarray] = None
         ret = False
-        
         # Mencoba membaca beberapa frame untuk mendapatkan yang terbaru, membuang yang lama jika ada buffer.
         # Untuk beberapa stream, frame pertama mungkin lama atau butuh waktu untuk tiba.
         for i in range(5): # Coba ambil hingga 5 frame, ambil yang terakhir berhasil
@@ -387,7 +404,8 @@ def login() -> Union[str, FlaskResponse]:
             if user and check_password_hash(user['password_hash'], password):
                 session['user_id'] = user['id']
                 session['username'] = user['username']
-                flash('Login berhasil!', 'success')
+                # Mengganti flash generik dengan pesan selamat datang yang lebih spesifik
+                flash(f"Selamat datang, {user['username']}!", 'success')
                 return redirect(url_for('dashboard'))
             else:
                 flash('Login gagal. Periksa kembali username/email dan password Anda.', 'danger')
@@ -456,7 +474,9 @@ def get_gemini_description(image_path_for_gemini: str, detected_class_name: str)
         print("Gemini API tidak dikonfigurasi. Mengembalikan deskripsi default.")
         return "Deskripsi generatif tidak tersedia karena API Gemini tidak dikonfigurasi."
     try:
-        model_gemini = genai.GenerativeModel('gemini-pro-vision')
+        # Mengganti model lama 'gemini-pro-vision' dengan model yang lebih baru dan disarankan.
+        # 'gemini-1.5-flash-latest' adalah pilihan yang baik untuk kecepatan dan biaya.
+        model_gemini = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         # Pastikan file ada sebelum mencoba mengunggah
         if not os.path.exists(image_path_for_gemini):
@@ -466,10 +486,12 @@ def get_gemini_description(image_path_for_gemini: str, detected_class_name: str)
         image_input = genai.upload_file(image_path_for_gemini)
         prompt = (
             f"Analisis gambar ini yang diduga menunjukkan kondisi oli sepeda motor. "
-            f"Model deteksi objek mengidentifikasi area/objek utama sebagai '{detected_class_name}'. "
-            f"Berdasarkan visual pada gambar dan identifikasi '{detected_class_name}', jelaskan secara detail kondisi kualitas oli tersebut. "
+            f"Model deteksi objek mengidentifikasi area/objek utama sebagai '{detected_class_name}'.\n\n"
+            f"Berdasarkan visual pada gambar dan identifikasi '{detected_class_name}', jelaskan kondisi kualitas oli tersebut. "
             f"Berikan juga rekomendasi perawatan atau penggantian oli yang relevan, serta saran umum terkait penggunaan oli tersebut "
-            f"untuk menjaga performa mesin sepeda motor."
+            f"untuk menjaga performa mesin sepeda motor.\n\n"
+            f"PENTING: Jawaban harus terdiri dari maksimal 3 paragraf. Setiap paragraf tidak boleh lebih dari 6 kalimat. "
+            f"Gunakan bahasa yang jelas dan ringkas."
         )
         response = model_gemini.generate_content([prompt, image_input])
         # Hapus file yang diunggah ke Gemini setelah digunakan jika perlu (opsional)
@@ -506,21 +528,25 @@ def _process_image_data_and_save_detection(
 
         annotated_image_filename = f"{base_image_name}_annotated.jpg"
         absolute_annotated_image_path = os.path.join(upload_folder, annotated_image_filename)
-        relative_annotated_image_path = os.path.join('uploads', annotated_image_filename)
+        # Pastikan path relatif menggunakan forward slashes untuk kompatibilitas URL
+        # Ini penting karena path ini disimpan ke DB dan digunakan oleh url_for.
+        relative_annotated_image_path = f"uploads/{annotated_image_filename}"
 
         save_success = cv2.imwrite(absolute_original_image_path, original_image_np)
         if not save_success:
             return False, "Gagal menyimpan gambar asli.", None
         print(f"Gambar asli dari browser disimpan di: {absolute_original_image_path}")
 
-        print(f"Melakukan deteksi YOLO pada frame (in-memory) yang diterima dari browser.")
+        print("Melakukan deteksi YOLO pada frame (in-memory) yang diterima dari browser.")
         results = yolo_model(original_image_np, verbose=False)
 
         detected_class_name = "Tidak Terdeteksi"
         confidence_score_str = "0.00%"
         generative_desc = "Tidak ada objek yang terdeteksi atau model tidak dapat mengklasifikasikan."
-        
-        cv2.imwrite(absolute_annotated_image_path, original_image_np) # Default ke gambar asli
+
+        # Tentukan gambar mana yang akan disimpan ke annotated_path (bisa gambar asli jika tidak ada deteksi/error plot)
+        image_to_save_for_annotated_path = original_image_np
+        log_prefix_for_annotated_save = "Gambar asli (sebagai fallback untuk anotasi)"
 
         if results and results[0].boxes:
             first_detection_box = results[0].boxes[0] 
@@ -528,23 +554,30 @@ def _process_image_data_and_save_detection(
             detected_class_name = yolo_model.names.get(class_id, f"Unknown Class {class_id}")
             confidence_score_val = float(first_detection_box.conf[0].item())
             confidence_score_str = f"{confidence_score_val*100:.2f}%"
-            
             print(f"Deteksi: {detected_class_name} dengan akurasi: {confidence_score_str}")
 
             try:
-                annotated_image_np = results[0].plot()
-                cv2.imwrite(absolute_annotated_image_path, annotated_image_np)
-                print(f"Gambar teranotasi disimpan di: {absolute_annotated_image_path}")
+                plotted_image_np = results[0].plot()
+                image_to_save_for_annotated_path = plotted_image_np
+                log_prefix_for_annotated_save = "Gambar teranotasi"
             except Exception as plot_err:
-                print(f"Error saat membuat atau menyimpan gambar anotasi: {plot_err}. Menggunakan gambar asli.")
-                # Gambar asli sudah disalin, jadi tidak perlu tindakan khusus
-
-            if gemini_api_key_present:
-                generative_desc = get_gemini_description(absolute_original_image_path, detected_class_name)
-            else:
-                generative_desc = "Fitur deskripsi Gemini tidak aktif (API Key tidak ditemukan)."
+                print(f"Error saat membuat gambar anotasi: {plot_err}. Menggunakan gambar asli untuk path anotasi.")
+                # image_to_save_for_annotated_path tetap original_image_np
         else:
-            print("Tidak ada objek yang terdeteksi oleh YOLO.")
+            print("Tidak ada objek yang terdeteksi oleh YOLO. Menggunakan gambar asli untuk path anotasi.")
+            # image_to_save_for_annotated_path tetap original_image_np
+
+        # Simpan gambar yang dipilih (asli atau teranotasi) ke path anotasi dan periksa keberhasilannya
+        if not cv2.imwrite(absolute_annotated_image_path, image_to_save_for_annotated_path):
+            error_msg = f"KRITIS: Gagal menyimpan {log_prefix_for_annotated_save.lower()} ke {absolute_annotated_image_path}."
+            print(error_msg)
+            return False, error_msg, None # Penting: jangan buat entri DB jika penyimpanan ini gagal.
+        print(f"{log_prefix_for_annotated_save} berhasil disimpan di: {absolute_annotated_image_path}")
+
+        if gemini_api_key_present and detected_class_name != "Tidak Terdeteksi": # Hanya panggil Gemini jika ada deteksi
+            generative_desc = get_gemini_description(absolute_original_image_path, detected_class_name)
+        elif not gemini_api_key_present:
+            generative_desc = "Fitur deskripsi Gemini tidak aktif (API Key tidak ditemukan)."
 
         db_conn = None
         cursor = None
@@ -786,6 +819,72 @@ def histori() -> str:
         pass
 
     return render_template('histori.html', title="Histori Deteksi", username=session.get('username'), detections=detections_history)
+
+@app.route('/hapus_deteksi/<int:detection_id>', methods=['GET']) # Sebaiknya POST untuk aksi destruktif, tapi GET sesuai link di HTML
+@login_required
+def hapus_deteksi(detection_id: int) -> FlaskResponse:
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            # get_db_connection sudah flash message jika gagal
+            return redirect(url_for('histori'))
+
+        cursor = conn.cursor(dictionary=True)
+
+        # 1. Ambil detail deteksi untuk mendapatkan nama file gambar
+        cursor.execute("SELECT image_name FROM detections WHERE id = %s AND user_id = %s", 
+                       (detection_id, session['user_id']))
+        detection = cursor.fetchone()
+
+        if not detection:
+            flash('Riwayat deteksi tidak ditemukan atau Anda tidak memiliki izin untuk menghapusnya.', 'warning')
+            return redirect(url_for('histori'))
+
+        # 2. Hapus file gambar terkait
+        image_name_from_db = detection['image_name'] # Ini adalah nama file anotasi, misal: "capture_USERID_TIMESTAMP_annotated.jpg"
+        
+        # Path ke file anotasi
+        annotated_image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_name_from_db)
+
+        # Path ke file original (berdasarkan konvensi penamaan)
+        # "capture_USERID_TIMESTAMP_annotated.jpg" -> "capture_USERID_TIMESTAMP_original.jpg"
+        original_image_filename = None
+        if image_name_from_db.endswith("_annotated.jpg"):
+            base_filename = image_name_from_db[:-len("_annotated.jpg")] # Hapus "_annotated.jpg"
+            original_image_filename = f"{base_filename}_original.jpg"
+            original_image_path = os.path.join(app.config['UPLOAD_FOLDER'], original_image_filename)
+
+            if os.path.exists(original_image_path):
+                os.remove(original_image_path)
+                print(f"File original dihapus: {original_image_path}")
+            else:
+                print(f"File original tidak ditemukan (tidak dihapus): {original_image_path}")
+
+        if os.path.exists(annotated_image_path):
+            os.remove(annotated_image_path)
+            print(f"File anotasi dihapus: {annotated_image_path}")
+        else:
+            print(f"File anotasi tidak ditemukan (tidak dihapus): {annotated_image_path}")
+
+        # 3. Hapus record dari database
+        cursor.execute("DELETE FROM detections WHERE id = %s AND user_id = %s", 
+                       (detection_id, session['user_id']))
+        conn.commit()
+
+        flash('Riwayat deteksi berhasil dihapus.', 'success')
+
+    except mysql.connector.Error as err:
+        flash(f'Gagal menghapus riwayat deteksi: {err}', 'danger')
+        if conn and conn.is_connected(): conn.rollback()
+    except OSError as e: # Untuk error saat menghapus file
+        flash(f'Gagal menghapus file gambar terkait: {e}', 'danger')
+    finally:
+        if cursor: cursor.close()
+        if conn and conn.is_connected(): conn.close()
+    
+    return redirect(url_for('histori'))
 
 @app.route('/logout')
 @login_required

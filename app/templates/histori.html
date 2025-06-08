@@ -48,8 +48,14 @@
                     </td>
                     <td>{{ '%.2f%%'|format(detection.confidence_score * 100) if detection.confidence_score is not none else 'N/A' }}</td>
                     <td>
-                        <a href="{{ url_for('hasil', detection_id=detection.id) }}" class="btn btn-sm btn-info">
+                        <a href="{{ url_for('hasil', detection_id=detection.id) }}" class="btn btn-sm btn-info me-1">
                             Lihat Detail
+                        </a>
+                        {# Tombol Hapus ditambahkan di sini #}
+                        <a href="{{ url_for('hapus_deteksi', detection_id=detection.id) }}" 
+                           class="btn btn-sm btn-danger" 
+                           onclick="return confirm('Anda yakin ingin menghapus riwayat deteksi ini? Ini tidak dapat dibatalkan.');">
+                            Hapus
                         </a>
                     </td>
                 </tr>

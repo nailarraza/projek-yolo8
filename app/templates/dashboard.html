@@ -4,7 +4,6 @@
 
 {% block content %}
 <div class="container mt-4">
-
     <div class="row mb-4">
         <div class="col-md-6">
             <div class="card">
@@ -151,73 +150,101 @@
             if (captureSpinner) captureSpinner.style.display = 'block';
             if (captureUserMessage) captureUserMessage.style.display = 'none'; // Sembunyikan pesan lama
 
+            const originalOnError = cameraFeed.onerror; // Simpan handler onerror asli
+
             try {
-                // 1. Fetch snapshot dari Flask server (yang mengambil dari ESP32 /capture_image)
+                // --- Bagian Modifikasi: Hentikan stream di browser dan beri jeda ---
+                cameraFeed.onerror = null; // Nonaktifkan onerror sementara untuk menghindari interferensi
+                if (cameraFeed) {
+                    console.log("Menghentikan stream di browser untuk membebaskan koneksi...");
+                    cameraFeed.src = ''; // Hentikan browser mengambil stream, ini akan memberi sinyal untuk menutup koneksi.
+                    // Tampilkan pesan bahwa stream dihentikan sementara
+                    if (streamStatusMessage) {
+                        streamStatusMessage.innerHTML = `<strong>Info:</strong> Tampilan stream kamera dihentikan sementara untuk proses capture. Anda mungkin perlu me-refresh halaman atau memperbarui IP untuk melihat stream lagi setelah proses selesai.`;
+                        streamStatusMessage.className = 'alert alert-info m-3';
+                        streamStatusMessage.style.display = 'block';
+                    }
+                }
+
+                // Beri jeda singkat agar ESP32-CAM sempat melepaskan koneksi stream dari browser
+                showCaptureMessage('Memberi jeda agar kamera siap untuk koneksi baru (1.5 detik)...', 'info');
+                await new Promise(resolve => setTimeout(resolve, 1500)); // Tunggu 1.5 detik (sesuaikan jika perlu)
+                // --- Akhir Bagian Modifikasi ---
+
+                showCaptureMessage('Mengambil snapshot dari server...', 'info'); // Update status
+                // 1. Fetch snapshot dari Flask server (yang mengambil dari ESP32 /stream atau /capture)
                 const snapshotResponse = await fetch("{{ url_for('get_snapshot_for_canvas') }}");
                 const snapshotResult = await snapshotResponse.json();
 
                 if (!snapshotResponse.ok || snapshotResult.status !== 'success' || !snapshotResult.image_data_url) {
                     showCaptureMessage(`Gagal mengambil snapshot dari server: ${snapshotResult.message || 'Error tidak diketahui.'}`, 'danger');
-                    captureButton.disabled = false; // Aktifkan kembali tombol jika gagal
-                    if (captureSpinner) captureSpinner.style.display = 'none';
-                    return;
+                    // Jangan return di sini, biarkan jatuh ke blok finally untuk mengaktifkan kembali tombol dll.
+                    throw new Error(`Pengambilan snapshot gagal: ${snapshotResult.message || 'Error server'}`);
                 }
 
-                // 2. Load snapshot (sebagai data URL same-origin) ke temporary image, lalu gambar ke canvas
-                const tempImg = new Image();
-                tempImg.onload = async () => { // Jadikan fungsi ini async untuk await di dalamnya
-                    try {
-                        const ctx = hiddenCanvas.getContext('2d');
-                        hiddenCanvas.width = tempImg.naturalWidth;
-                        hiddenCanvas.height = tempImg.naturalHeight;
-                        ctx.drawImage(tempImg, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                // Jika snapshot berhasil, lanjutkan untuk memuatnya ke canvas
+                // Bagian ini bersifat asinkron karena pemuatan gambar
+                await new Promise((resolve, reject) => {
+                    const tempImg = new Image();
+                    tempImg.onload = async () => {
+                        try {
+                            const ctx = hiddenCanvas.getContext('2d');
+                            hiddenCanvas.width = tempImg.naturalWidth;
+                            hiddenCanvas.height = tempImg.naturalHeight;
+                            ctx.drawImage(tempImg, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                            const canvasDataUrl = hiddenCanvas.toDataURL('image/jpeg', 0.9);
 
-                        // Dapatkan data URL dari canvas (sekarang tidak tainted)
-                        const canvasDataUrl = hiddenCanvas.toDataURL('image/jpeg', 0.9);
+                            showCaptureMessage('Mengirim gambar untuk diproses...', 'info');
+                            // 3. Kirim data URL dari canvas ini ke endpoint pemrosesan
+                            const processResponse = await fetch("{{ url_for('process_browser_capture') }}", {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ image_data_url: canvasDataUrl })
+                            });
+                            const processResult = await processResponse.json();
 
-                        // 3. Kirim data URL dari canvas ini ke endpoint pemrosesan
-                        const processResponse = await fetch("{{ url_for('process_browser_capture') }}", {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ image_data_url: canvasDataUrl })
-                        });
-                        const processResult = await processResponse.json();
-
-                        if (processResponse.ok && processResult.status === 'success' && processResult.redirect_url) {
-                            showCaptureMessage('Gambar berhasil diproses! Mengarahkan ke halaman hasil...', 'success');
-                            setTimeout(() => {
-                                window.location.href = processResult.redirect_url;
-                            }, 1500);
-                        } else {
-                            showCaptureMessage(`Gagal memproses gambar: ${processResult.message || 'Error tidak diketahui dari server.'}`, 'danger');
-                            captureButton.disabled = false;
+                            if (processResponse.ok && processResult.status === 'success' && processResult.redirect_url) {
+                                showCaptureMessage('Gambar berhasil diproses! Mengarahkan ke halaman hasil...', 'success');
+                                setTimeout(() => { window.location.href = processResult.redirect_url; }, 1500);
+                                resolve(); // Selesaikan promise luar
+                            } else {
+                                showCaptureMessage(`Gagal memproses gambar: ${processResult.message || 'Error tidak diketahui dari server.'}`, 'danger');
+                                reject(new Error(`Pemrosesan gagal: ${processResult.message || 'Error server'}`));
+                            }
+                        } catch (processingError) {
+                            console.error('Error saat memproses gambar atau mengirim ke server:', processingError);
+                            showCaptureMessage(`Terjadi kesalahan lanjutan saat memproses: ${processingError.message}`, 'danger');
+                            reject(processingError);
                         }
-                    } catch (processingError) {
-                        console.error('Error saat memproses gambar atau mengirim ke server:', processingError);
-                        showCaptureMessage(`Terjadi kesalahan lanjutan saat memproses: ${processingError.message}`, 'danger');
-                        captureButton.disabled = false;
-                    } finally {
-                        // Spinner disembunyikan setelah pemrosesan selesai atau gagal
-                        if (captureSpinner) captureSpinner.style.display = 'none';
-                    }
-                };
-                tempImg.onerror = () => {
-                    showCaptureMessage('Gagal memuat data snapshot ke elemen gambar. Data mungkin korup.', 'danger');
-                    captureButton.disabled = false;
-                    if (captureSpinner) captureSpinner.style.display = 'none';
-                };
-                tempImg.src = snapshotResult.image_data_url; // Ini akan memicu tempImg.onload atau tempImg.onerror
+                    };
+                    tempImg.onerror = () => {
+                        showCaptureMessage('Gagal memuat data snapshot ke elemen gambar. Data mungkin korup.', 'danger');
+                        reject(new Error('Gagal memuat data snapshot ke elemen gambar.'));
+                    };
+                    tempImg.src = snapshotResult.image_data_url; // Ini akan memicu tempImg.onload atau tempImg.onerror
+                });
 
-            } catch (error) { // Menangkap error dari fetch awal ke /get_snapshot_for_canvas
+            } catch (error) { // Menangkap error dari fetch snapshot awal atau dari promise pemrosesan gambar
                 console.error('Error saat mengambil snapshot awal:', error);
-                showCaptureMessage(`Terjadi kesalahan pada sisi klien saat mengambil snapshot: ${error.message}`, 'danger');
-                captureButton.disabled = false; // Aktifkan kembali tombol jika ada error klien
+                // showCaptureMessage kemungkinan sudah dipanggil oleh handler error spesifik,
+                // tapi ini sebagai fallback.
+                if (!captureUserMessage.style.display || captureUserMessage.style.display === 'none') {
+                     showCaptureMessage(`Terjadi kesalahan: ${error.message}`, 'danger');
+                }
+            } finally {
                 if (captureSpinner) captureSpinner.style.display = 'none';
+                // Aktifkan kembali tombol hanya jika tidak sedang mengarahkan (yang ditangani oleh setTimeout)
+                // Periksa apakah pesan sukses yang mengarah ke redirect ditampilkan
+                const isRedirecting = captureUserMessage.classList.contains('alert-success') && captureUserMessage.textContent.includes('Mengarahkan');
+                if (!isRedirecting) {
+                    captureButton.disabled = false;
+                }
+                // Pulihkan handler onerror asli untuk cameraFeed
+                if (cameraFeed && originalOnError) {
+                    cameraFeed.onerror = originalOnError;
+                }
+                // Stream sekarang dihentikan. Pesan pengguna tentang me-refresh penting.
             }
-            // Tidak ada 'finally' di sini karena operasi utama bersifat asinkron di dalam tempImg.onload/onerror
-            // Spinner dan tombol dihandle di dalam callback tersebut atau di catch luar.
         });
     } else {
         if (captureButton) { // Jika tombol ada tapi elemen lain tidak, ini masalah konfigurasi

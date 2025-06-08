@@ -88,29 +88,9 @@ void handleStream() {
       Serial.println("Client disconnected during stream write");
       break;
     }
-    // delay(66); // Untuk ~15 FPS, sesuaikan jika perlu. Tanpa delay akan secepat mungkin.
+    // Tambahkan delay untuk mengurangi beban CPU dan potensi overheat, terutama pada resolusi tinggi.
+    delay(100); // Menghasilkan sekitar 10 FPS. Sesuaikan (misal 200 untuk 5 FPS) jika masih panas.
   }
-}
-
-// Handler untuk mengambil satu foto (snapshot)
-void handleCapture() {
-  camera_fb_t * fb = NULL;
-  fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("Camera capture failed");
-    server.send(500, "text/plain", "Failed to capture image");
-    return;
-  }
-
-  server.setContentLength(fb->len);
-  server.sendHeader("Content-Type", "image/jpeg");
-  server.sendHeader("Access-Control-Allow-Origin", "*"); // Izinkan CORS jika diakses dari domain lain
-  server.send(200, "image/jpeg", ""); // Header dulu
-  
-  WiFiClient client = server.client();
-  client.write(fb->buf, fb->len); // Kirim data gambar
-
-  esp_camera_fb_return(fb);
 }
 
 void setup() {
@@ -139,22 +119,29 @@ void setup() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 20000000; // Frekuensi XCLK standar.
+                                  // Jika mengalami masalah stabilitas atau panas berlebih yang parah,
+                                  // secara eksperimental bisa coba diturunkan ke 16000000 atau 10000000,
+                                  // namun ini dapat mempengaruhi frame rate atau kompatibilitas sensor.
   config.pixel_format = PIXFORMAT_JPEG; // PIXFORMAT_RGB565, PIXFORMAT_YUV422
   
   // Frame size - pilih yang sesuai, resolusi tinggi butuh PSRAM dan bisa lebih lambat
   // Untuk Kamera 5MP (seperti OV5640), gunakan FRAMESIZE_QSXGA atau resolusi tinggi lainnya.
   // Pastikan modul ESP32-CAM Anda memiliki PSRAM yang cukup.
-  config.frame_size = FRAMESIZE_QSXGA; // (2560x1920) - Untuk kamera 5MP
-  // config.frame_size = FRAMESIZE_UXGA; // (1600x1200)
+  config.frame_size = FRAMESIZE_QSXGA; // (2560x1920) - Resolusi sangat tinggi, untuk deteksi yang lebih jelas.
+  // config.frame_size = FRAMESIZE_UXGA; // (1600x1200) // Resolusi sebelumnya.
   // config.frame_size = FRAMESIZE_SXGA; // (1280x1024)
   // config.frame_size = FRAMESIZE_XGA;  // (1024x768)
   // config.frame_size = FRAMESIZE_SVGA; // (800x600) // Dikomentari karena QSXGA dipilih
   // config.frame_size = FRAMESIZE_VGA;  // (640x480)
   // config.frame_size = FRAMESIZE_CIF;  // (352x288)
   // config.frame_size = FRAMESIZE_QVGA; // (320x240)
+  // Jika masih buram atau ada masalah, coba turunkan lagi ke SXGA atau XGA.
 
-  config.jpeg_quality = 12; // 0-63, angka lebih rendah berarti kualitas lebih tinggi. Untuk 5MP, 10-15 adalah awal yang baik.
+  config.jpeg_quality = 10; // 0-63, angka lebih rendah berarti kualitas lebih tinggi.
+                            // Nilai 10 sudah baik untuk kualitas.
+                            // Menaikkan nilai ini (misal 15-20) akan mengurangi ukuran file JPEG
+                            // dan beban pemrosesan, membantu mengurangi panas. Kualitas gambar sedikit menurun.
   config.fb_count = 1;      // Jika PSRAM lebih banyak, bisa > 1. Untuk stream, 1 atau 2 cukup.
   config.fb_location = CAMERA_FB_IN_PSRAM; // Gunakan PSRAM untuk frame buffer
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
@@ -173,23 +160,35 @@ void setup() {
     Serial.printf("Sensor PID: 0x%02x, Version: 0x%02x\n", s->id.PID, s->id.VER); // Cetak info sensor
     if (s->id.PID == OV5640_PID) {
       Serial.println("OV5640 sensor detected.");
-      // Contoh penyesuaian untuk OV5640 (aktifkan dan sesuaikan jika perlu):
-      // Umumnya, OV5640 memiliki orientasi dan warna default yang baik.
+      // Penyesuaian untuk sensor OV5640 (5MP). Aktifkan dan sesuaikan nilai sesuai kebutuhan.
       // s->set_vflip(s, 0);       // Vertikal flip: 0 = normal, 1 = flipped
       // s->set_hmirror(s, 0);     // Horizontal mirror: 0 = normal, 1 = mirrored
-      // s->set_brightness(s, 0);  // Kecerahan: -2 (gelap) hingga 2 (terang)
-      // s->set_contrast(s, 0);    // Kontras: -2 hingga 2
-      // s->set_saturation(s, 0);  // Saturasi: -2 (grayscale) hingga 2 (sangat jenuh)
-      // s->set_special_effect(s, 0); // Efek khusus: 0 (normal), 1 (negatif), dll.
-      // s->set_whitebal(s, 1);    // White Balance otomatis: 0 = mati, 1 = nyala
-      // s->set_awb_gain(s, 1);    // Auto White Balance Gain: 0 = mati, 1 = nyala
+      // s->set_brightness(s, 0);  // Kecerahan: -2 (gelap) hingga 2 (terang), default 0
+      // s->set_contrast(s, 0);    // Kontras: -2 hingga 2, default 0
+      s->set_denoise(s, 1);     // Aktifkan fitur denoise internal sensor: 0 = mati, 1 = nyala.
+                                  // Membantu mengurangi noise umum pada gambar.
+      s->set_saturation(s, -1); // Saturasi: -2 (grayscale) hingga 2 (sangat jenuh), default 0.
+                                  // Coba -1 untuk mengurangi intensitas noise warna (misal ungu).
+                                  // Efek samping: warna keseluruhan jadi kurang cerah/vibrant.
+      
+      // Pengaturan otomatis untuk kualitas gambar yang lebih baik dan stabil
+      s->set_whitebal(s, 1);    // White Balance otomatis: 0 = mati, 1 = nyala (REKOMENDASI: 1)
+      s->set_awb_gain(s, 1);    // Auto White Balance Gain: 0 = mati, 1 = nyala (REKOMENDASI: 1)
       // s->set_wb_mode(s, 0);     // Mode White Balance: 0 (auto), 1 (sunny), 2 (cloudy), 3 (office), 4 (home)
-      // Untuk kualitas gambar yang lebih baik pada OV5640, beberapa pengaturan mungkin perlu dipertimbangkan:
-      // s->set_exposure_ctrl(s, 1); // Aktifkan kontrol eksposur otomatis
+
+      s->set_exposure_ctrl(s, 1); // Aktifkan kontrol eksposur otomatis (AEC) (REKOMENDASI: 1)
+      s->set_ae_level(s, 0);      // Sesuaikan target level kecerahan untuk Auto Exposure: -2 (lebih gelap) hingga 2 (lebih terang).
+                                  // Default adalah 0. Jika gambar cenderung terlalu gelap, coba naikkan ke 1.
+                                  // Jika terlalu terang, turunkan ke -1. Ini membantu "auto brightness".
+
       // s->set_aec_value(s, 300);   // Sesuaikan nilai AEC (Auto Exposure Control) jika perlu (0-1200)
-      // s->set_gain_ctrl(s, 1);     // Aktifkan kontrol gain otomatis
+      s->set_gain_ctrl(s, 1);     // Aktifkan kontrol gain otomatis (AGC) (REKOMENDASI: 1)
       // s->set_agc_gain(s, 0);      // Set AGC gain (0-30)
-      // s->set_gainceiling(s, GAINCEILING_2X); // Batas atas AGC gain (mis. GAINCEILING_2X, _4X, ..., _128X)
+      s->set_gainceiling(s, GAINCEILING_8X); // Batas atas AGC gain. Sebelumnya GAINCEILING_16X.
+                                             // Menurunkan gain ceiling (misal ke _8X, _4X) dapat mengurangi noise,
+                                             // namun gambar akan lebih gelap di kondisi kurang cahaya.
+                                             // Jika gambar terlalu gelap di kondisi minim cahaya dan Anda bisa mentolerir sedikit noise,
+                                             // Anda bisa menaikkan ini ke GAINCEILING_16X.
     } else {
       Serial.printf("Sensor is NOT OV5640 (PID: 0x%x). No OV5640-specific settings applied.\n", s->id.PID);
     }
@@ -210,21 +209,16 @@ void setup() {
   Serial.print("Camera Stream Ready! Go to: http://");
   Serial.print(WiFi.localIP());
   Serial.println("/stream");
-  Serial.print("Camera Capture Ready! Go to: http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("/capture");
 
 
   // Setup server routes
   server.on("/stream", HTTP_GET, handleStream);
-  server.on("/capture", HTTP_GET, handleCapture);
   
   server.on("/", HTTP_GET, [](){
     server.send(200, "text/html", 
       "<!DOCTYPE html><html><head><title>ESP32-CAM</title></head><body>"
       "<h1>ESP32-CAM Server</h1>"
       "<p><a href='/stream'>Stream</a></p>"
-      "<p><a href='/capture'>Capture Single Photo</a></p>"
       "</body></html>");
   });
 

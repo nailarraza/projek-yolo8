@@ -9,7 +9,7 @@ from datetime import datetime
 import google.generativeai as genai
 from typing import Optional, Dict, Any, Tuple, Union, Callable, cast # Import tipe yang dibutuhkan
 from dotenv import load_dotenv # Untuk memuat variabel dari .env
-import requests 
+import requests
 from ultralytics import YOLO # Pastikan ultralytics terinstal
 import cv2 # Untuk pemrosesan gambar (konversi ke byte, penyimpanan gambar anotasi)
 import base64 # Untuk decode base64 image dari client
@@ -17,6 +17,9 @@ import time # Digunakan dalam fungsi capture_single_frame_from_stream_cv2
 import numpy as np # Untuk konversi byte gambar ke array NumPy
 import threading # Untuk Lock pada modifikasi environment variable OpenCV
 # from PIL import Image # Opsional: Uncomment jika ingin validasi gambar lebih lanjut dengan Pillow
+from werkzeug.wrappers import Response as WerkzeugResponse # Untuk type hinting redirect()
+from mysql.connector.connection import MySQLConnection
+from mysql.connector.pooling import PooledMySQLConnection # Tambahkan import ini
 from mysql.connector.abstracts import MySQLConnectionAbstract # Untuk type hinting koneksi DB
 
 
@@ -30,7 +33,7 @@ if not GEMINI_API_KEY:
     app.logger.warning("GOOGLE_GEMINI_API_KEY tidak ditemukan di .env. Fitur deskripsi Gemini tidak akan berfungsi.")
 else:
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY) # type: ignore
         app.logger.info("Google Gemini API berhasil dikonfigurasi.")
     except Exception as e:
         app.logger.error(f"Error saat mengkonfigurasi Gemini API: {e}")
@@ -42,26 +45,53 @@ app.config['UPLOAD_FOLDER'] = 'app/static/uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Muat Model YOLOv8 sekali saat aplikasi dimulai
-MODEL_PATH = os.getenv('YOLO_MODEL_PATH', os.path.join('models_yolo', 'best.pt'))
-model_yolo: Optional[YOLO] = None # Inisialisasi dengan tipe
+# Model untuk deteksi Oli
+MODEL_PATH_OIL = os.getenv('YOLO_MODEL_OIL_PATH', os.getenv('YOLO_MODEL_PATH', os.path.join('models_yolo', 'best.pt'))) # Fallback ke YOLO_MODEL_PATH
+model_yolo_oil: Optional[YOLO] = None
 try:
-    if os.path.exists(MODEL_PATH):
-        model_yolo = YOLO(MODEL_PATH) # type: ignore
-        app.logger.info(f"Model YOLO berhasil dimuat dari {MODEL_PATH}")
+    if os.path.exists(MODEL_PATH_OIL):
+        model_yolo_oil = YOLO(MODEL_PATH_OIL) # type: ignore
+        app.logger.info(f"Model YOLO untuk OLI berhasil dimuat dari {MODEL_PATH_OIL}")
     else:
-        app.logger.error(f"Error: File model YOLO tidak ditemukan di path: {MODEL_PATH}")
+        app.logger.error(f"Error: File model YOLO untuk OLI tidak ditemukan di path: {MODEL_PATH_OIL}")
 except Exception as e:
-    app.logger.error(f"Error saat memuat model YOLO dari {MODEL_PATH}: {e}")
-    model_yolo = None
+    app.logger.error(f"Error saat memuat model YOLO untuk OLI dari {MODEL_PATH_OIL}: {e}")
+    model_yolo_oil = None
+
+# Model untuk deteksi Manusia
+MODEL_PATH_HUMAN = os.getenv('YOLO_MODEL_HUMAN_PATH', os.path.join('models_yolo', 'best2.pt'))
+model_yolo_human: Optional[YOLO] = None
+try:
+    if os.path.exists(MODEL_PATH_HUMAN):
+        model_yolo_human = YOLO(MODEL_PATH_HUMAN) # type: ignore
+        app.logger.info(f"Model YOLO untuk MANUSIA berhasil dimuat dari {MODEL_PATH_HUMAN}")
+    else:
+        app.logger.error(f"Error: File model YOLO untuk MANUSIA tidak ditemukan di path: {MODEL_PATH_HUMAN}")
+except Exception as e:
+    app.logger.error(f"Error saat memuat model YOLO untuk MANUSIA dari {MODEL_PATH_HUMAN}: {e}")
+    model_yolo_human = None
+
+# Model untuk deteksi Merek dan Warna Motor
+MODEL_PATH_MOTORCYCLE = os.getenv('YOLO_MODEL_MOTORCYCLE_PATH', os.path.join('models_yolo', 'best3.pt'))
+model_yolo_motorcycle: Optional[YOLO] = None
+try:
+    if os.path.exists(MODEL_PATH_MOTORCYCLE):
+        model_yolo_motorcycle = YOLO(MODEL_PATH_MOTORCYCLE) # type: ignore
+        app.logger.info(f"Model YOLO untuk MEREK/WARNA MOTOR berhasil dimuat dari {MODEL_PATH_MOTORCYCLE}")
+    else:
+        app.logger.error(f"Error: File model YOLO untuk MEREK/WARNA MOTOR tidak ditemukan di path: {MODEL_PATH_MOTORCYCLE}")
+except Exception as e:
+    app.logger.error(f"Error saat memuat model YOLO untuk MEREK/WARNA MOTOR dari {MODEL_PATH_MOTORCYCLE}: {e}")
+    model_yolo_motorcycle = None
 
 # Konfigurasi Database MySQL
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "db_projek_yolo8")
+# Langsung definisikan kredensial database di sini
+DB_HOST = "localhost"  # Ganti dengan host database Anda jika berbeda
+DB_USER = "root"       # Ganti dengan username database Anda
+DB_PASSWORD = ""       # Ganti dengan password database Anda (kosongkan jika tidak ada password untuk root)
+DB_NAME = "db_projek_yolo8" # Ganti dengan nama database Anda
 
 # Konfigurasi Kamera
-DEFAULT_CAMERA_IP_FROM_ENV = os.getenv("ESP32_CAM_IP") # IP dari .env sebagai fallback (string IP atau hostname)
 CAMERA_REQUEST_TIMEOUT = int(os.getenv("CAMERA_REQUEST_TIMEOUT", "60"))
 CAMERA_VERIFY_TIMEOUT = int(os.getenv("CAMERA_VERIFY_TIMEOUT", "30")) # Timeout untuk verifikasi koneksi IP
 
@@ -71,27 +101,18 @@ CAMERA_STREAM_PATH = "/stream" # Untuk live view di dashboard/uji_kamera
 CAMERA_CAPTURE_PATH = "/stream" # Default ke /stream, bisa diubah jika ada endpoint snapshot khusus seperti /capture atau path gambar statis
 
 def get_camera_base_ip() -> Optional[str]:
-    """Mendapatkan IP dasar kamera dari session, fallback ke .env."""
-    # Prioritaskan IP dari session jika ada
-    camera_ip_session = session.get('esp32_cam_ip')
-    if camera_ip_session:
-        if not camera_ip_session.startswith(('http://', 'https://')):
-            return f"http://{camera_ip_session}"
-        return camera_ip_session
-
-    # Jika tidak ada di session, gunakan dari .env
-    if DEFAULT_CAMERA_IP_FROM_ENV:
-        if not DEFAULT_CAMERA_IP_FROM_ENV.startswith(('http://', 'https://')):
-            return f"http://{DEFAULT_CAMERA_IP_FROM_ENV}"
-        return DEFAULT_CAMERA_IP_FROM_ENV
+    """Mendapatkan IP dasar kamera dari session."""
+    camera_ip = session.get('esp32_cam_ip')
+    if camera_ip:
+        # Pastikan format URL dasar
+        if not camera_ip.startswith(('http://', 'https://')):
+            return f"http://{camera_ip}"
+        return camera_ip
     return None
 
-if not DEFAULT_CAMERA_IP_FROM_ENV:
-    app.logger.warning("ESP32_CAM_IP (atau IP Kamera) tidak diatur di .env sebagai fallback. Fitur kamera hanya akan berfungsi jika IP diinput manual oleh user.")
-else:
-    app.logger.info("Konfigurasi Kamera Default dari .env:")
-    app.logger.info(f"  IP Dasar Kamera (fallback): {DEFAULT_CAMERA_IP_FROM_ENV}")
-    
+# Tidak ada lagi fallback dari .env, jadi logging ini tidak relevan lagi.
+# app.logger.info("Fitur kamera hanya akan berfungsi jika IP diinput manual oleh user melalui dashboard.")
+
 def verify_camera_connection(ip_address: str) -> Tuple[bool, str]:
     """
     Verifikasi koneksi ke stream kamera pada alamat IP yang diberikan.
@@ -108,7 +129,7 @@ def verify_camera_connection(ip_address: str) -> Tuple[bool, str]:
 
     # Verifikasi bisa menggunakan stream path atau capture path.
     # Stream path lebih baik untuk verifikasi "keaktifan" kamera.
-    verify_url = f"{base_url}{CAMERA_STREAM_PATH}" 
+    verify_url = f"{base_url}{CAMERA_STREAM_PATH}"
     app.logger.info(f"Verifying camera connection to: {verify_url} with timeout {CAMERA_VERIFY_TIMEOUT}s")
 
     try:
@@ -148,7 +169,7 @@ app.logger.info(f"  Timeout Request Kamera: {CAMERA_REQUEST_TIMEOUT} detik")
 app.logger.info(f"  Timeout Verifikasi Kamera: {CAMERA_VERIFY_TIMEOUT} detik")
 app.logger.info(f"  PENTING: Pastikan 'Path Capture' ({CAMERA_CAPTURE_PATH}) dan 'Path Stream' ({CAMERA_STREAM_PATH}) sesuai dengan endpoint di firmware ESP32-CAM Anda.")
 
-def capture_single_frame_from_http_endpoint(capture_url: str, 
+def capture_single_frame_from_http_endpoint(capture_url: str,
                                             timeout: int = 10) -> Tuple[Optional[np.ndarray], Optional[str]]:
     """
     Mengambil satu frame gambar dari HTTP endpoint (misalnya, ESP32-CAM /capture_image).
@@ -162,16 +183,16 @@ def capture_single_frame_from_http_endpoint(capture_url: str,
         content_type = response.headers.get('content-type', '').lower()
         if 'image' not in content_type:
             app.logger.warning(f"Content-Type dari {capture_url} adalah '{content_type}', diharapkan mengandung 'image'. Tetap mencoba memproses.")
-        
+
         image_bytes = response.content
         if not image_bytes:
             return None, f"Tidak ada data gambar yang diterima dari {capture_url}."
 
         image_np = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
-        
+
         if image_np is None:
             return None, f"Gagal mendekode data gambar dari {capture_url}. Pastikan endpoint mengembalikan format gambar yang valid (JPEG, PNG, dll)."
-        
+
         app.logger.info(f"Gambar berhasil diambil dan didekode dari {capture_url}")
         return image_np, None
 
@@ -198,16 +219,16 @@ def capture_single_frame_from_http_endpoint(capture_url: str,
 # Global lock untuk sinkronisasi akses ke OPENCV_FFMPEG_CAPTURE_OPTIONS
 opencv_ffmpeg_options_lock = threading.Lock()
 
-def capture_single_frame_from_stream_cv2(stream_url: str, 
-                                         read_frame_timeout: int = 10, 
+def capture_single_frame_from_stream_cv2(stream_url: str,
+                                         read_frame_timeout: int = 10,
                                          open_stream_timeout_sec: int = 60) -> Tuple[Optional[np.ndarray], Optional[str]]:
     """
     Mengambil satu frame dari network stream menggunakan OpenCV.
     Fungsi ini memodifikasi environment variable OPENCV_FFMPEG_CAPTURE_OPTIONS secara sementara
     dan menggunakan threading.Lock untuk memastikan thread-safety.
     """
-    
-    ffmpeg_timeout_us = str(open_stream_timeout_sec * 1000 * 1000) 
+
+    ffmpeg_timeout_us = str(open_stream_timeout_sec * 1000 * 1000)
     ffmpeg_options_to_set = f"timeout;{ffmpeg_timeout_us}|rw_timeout;{ffmpeg_timeout_us}"
 
     cap: Optional[cv2.VideoCapture] = None
@@ -218,7 +239,7 @@ def capture_single_frame_from_stream_cv2(stream_url: str,
         original_ffmpeg_options_env = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
         app.logger.debug(f"Setting OPENCV_FFMPEG_CAPTURE_OPTIONS temporarily to: {ffmpeg_options_to_set} for stream: {stream_url}")
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = ffmpeg_options_to_set
-        
+
         # This inner try/finally ensures env var is restored even if VideoCapture init fails badly
         try:
             max_open_attempts = 3
@@ -228,12 +249,12 @@ def capture_single_frame_from_stream_cv2(stream_url: str,
                 app.logger.info(f"Attempting to open stream with OpenCV: {stream_url} (Attempt {attempt + 1}/{max_open_attempts})")
                 # cv2.VideoCapture reads OPENCV_FFMPEG_CAPTURE_OPTIONS at the time of this call
                 current_attempt_cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-                
+
                 if current_attempt_cap.isOpened():
                     cap = current_attempt_cap # Assign to outer scope variable for use after lock
                     stream_opened_successfully = True
                     app.logger.info(f"Stream successfully opened on attempt {attempt + 1}")
-                    break 
+                    break
                 else:
                     app.logger.warning(f"Failed to open stream on attempt {attempt + 1} (cap.isOpened() false). Waiting {attempt_delay_sec}s before retrying...")
                     current_attempt_cap.release() # Release the failed attempt
@@ -264,12 +285,12 @@ def capture_single_frame_from_stream_cv2(stream_url: str,
         ret = False
         # Mencoba membaca beberapa frame untuk mendapatkan yang terbaru, membuang yang lama jika ada buffer.
         # Untuk beberapa stream, frame pertama mungkin lama atau butuh waktu untuk tiba.
-        for i in range(5): # Coba ambil hingga 5 frame, ambil yang terakhir berhasil
+        for i in range(2): # Coba ambil hingga 2 frame, ambil yang terakhir berhasil
             if time.time() - start_time > read_frame_timeout:
                 error_msg_read = f"Timeout ({read_frame_timeout}s) waiting for frame from {stream_url} after open (attempt {i+1})."
                 app.logger.warning(error_msg_read)
-                break 
-            
+                break
+
             temp_ret, temp_frame = cap.read()
             if temp_ret and temp_frame is not None:
                 ret = True
@@ -280,7 +301,7 @@ def capture_single_frame_from_stream_cv2(stream_url: str,
             else:
                 app.logger.warning(f"Failed to read frame on attempt {i+1} from {stream_url}. ret={temp_ret}")
                 time.sleep(0.2) # Jeda singkat jika read gagal
-        
+
         if not ret or frame is None:
             app.logger.error(f"Gagal membaca frame dari stream {stream_url} setelah beberapa percobaan pasca pembukaan stream.")
             return None, f"Gagal membaca frame dari stream {stream_url} setelah beberapa percobaan."
@@ -309,9 +330,9 @@ def custom_date_filter(value: Union[str, datetime], fmt: Optional[str] = None) -
         except ValueError:
             pass # Jika gagal parse, kembalikan string asli
     return str(value)
- 
-def get_db_connection() -> Optional[MySQLConnectionAbstract]:
-    try: 
+
+def get_db_connection() -> Optional[Union[MySQLConnection, MySQLConnectionAbstract, PooledMySQLConnection]]:
+    try:
         conn = mysql.connector.connect(
             host=DB_HOST,
             user=DB_USER,
@@ -333,15 +354,15 @@ def login_required(f: Callable) -> Callable:
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
- 
+
 @app.route('/')
-def index() -> FlaskResponse:
+def index() -> WerkzeugResponse:
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
- 
+
 @app.route('/register', methods=['GET', 'POST'])
-def register() -> Union[str, FlaskResponse]:
+def register() -> Union[str, WerkzeugResponse]:
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         email = request.form.get('email', '').strip()
@@ -364,7 +385,7 @@ def register() -> Union[str, FlaskResponse]:
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
-            existing_user = cursor.fetchone()
+            existing_user: Optional[Dict[str, Any]] = cursor.fetchone() # type: ignore[assignment]
 
             if existing_user:
                 flash('Username atau Email sudah terdaftar.', 'warning')
@@ -385,9 +406,9 @@ def register() -> Union[str, FlaskResponse]:
             if conn and conn.is_connected(): conn.close()
 
     return render_template('register.html', title="Register")
- 
+
 @app.route('/login', methods=['GET', 'POST'])
-def login() -> Union[str, FlaskResponse]:
+def login() -> Union[str, WerkzeugResponse]:
     if request.method == 'POST':
         identifier = request.form.get('identifier', '').strip()
         password = request.form.get('password', '')
@@ -404,7 +425,7 @@ def login() -> Union[str, FlaskResponse]:
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT id, username, password_hash FROM users WHERE username = %s OR email = %s", (identifier, identifier))
-            user: Optional[Dict[str, Any]] = cursor.fetchone()
+            user: Optional[Dict[str, Any]] = cursor.fetchone() # type: ignore[assignment]
 
             if user and check_password_hash(user['password_hash'], password):
                 session['user_id'] = user['id']
@@ -421,9 +442,9 @@ def login() -> Union[str, FlaskResponse]:
         finally:
             if cursor: cursor.close()
             if conn and conn.is_connected(): conn.close()
-            
+
     return render_template('login.html', title="Login")
- 
+
 @app.route('/dashboard')
 @login_required
 def dashboard() -> str:
@@ -436,40 +457,41 @@ def dashboard() -> str:
     else:
         flash("Alamat IP Kamera belum dikonfigurasi. Silakan masukkan IP Kamera untuk mengaktifkan fitur kamera.", "warning")
 
-    return render_template('dashboard.html', 
-                           title="Dashboard", 
+    return render_template('dashboard.html',
+                           title="Dashboard",
                            username=session.get('username'),
-                           current_cam_ip=session.get('esp32_cam_ip', DEFAULT_CAMERA_IP_FROM_ENV or ""), # Untuk ditampilkan di form
+                           current_cam_ip=session.get('esp32_cam_ip', ""), # Untuk ditampilkan di form, fallback ke string kosong
                            esp32_stream_url=esp32_stream_url,
                            camera_configured=(camera_base_ip is not None))
- 
+
 @app.route('/update_cam_ip', methods=['POST'])
 @login_required
-def update_cam_ip() -> FlaskResponse:
+def update_cam_ip() -> WerkzeugResponse:
     new_cam_ip = request.form.get('esp32_cam_ip', '').strip()
-    
+
     if new_cam_ip:
-        # Validasi sederhana (bisa lebih kompleks jika perlu, misal regex IP)
-        # Cek format dasar IP (contoh: 1.1.1.1 minimal 7 karakter) atau hostname (mengandung titik atau strip)
-        if not (('.' in new_cam_ip and len(new_cam_ip) >= 7) or ('-' in new_cam_ip and len(new_cam_ip) > 1)): # Hostname bisa pendek jika hanya satu kata
+        # Validasi sederhana: minimal ada satu titik (untuk IP) atau panjang tertentu untuk hostname
+        # Ini adalah validasi yang sangat dasar.
+        is_potentially_valid_ip_or_hostname = '.' in new_cam_ip or len(new_cam_ip) > 3 # Contoh sederhana
+        if not is_potentially_valid_ip_or_hostname:
              flash('Format Alamat IP Kamera tidak valid.', 'danger')
              return redirect(url_for('dashboard'))
 
         is_verified, verify_message = verify_camera_connection(new_cam_ip)
-        
+
         if is_verified:
-            session['esp32_cam_ip'] = new_cam_ip
+            session['esp32_cam_ip'] = new_cam_ip # Simpan IP yang sudah diverifikasi
             flash(f'Alamat IP Kamera berhasil diperbarui dan diverifikasi: {new_cam_ip}', 'success')
             app.logger.info(f"User {session.get('username')} memperbarui IP Kamera ke: {new_cam_ip} (Verifikasi Berhasil)")
         else:
-            # Simpan IP meskipun verifikasi gagal, tapi beri peringatan
+            # Simpan IP input pengguna meskipun verifikasi gagal, tapi beri peringatan jelas
             session['esp32_cam_ip'] = new_cam_ip # Simpan input user
             flash(f'Alamat IP Kamera diperbarui menjadi: {new_cam_ip}. PERINGATAN: Verifikasi koneksi gagal - {verify_message}', 'warning')
             app.logger.warning(f"User {session.get('username')} memperbarui IP Kamera ke: {new_cam_ip} (Verifikasi GAGAL: {verify_message})")
     else:
-        # Jika input kosong, hapus dari session agar kembali ke default .env (jika ada)
+        # Jika input kosong, hapus IP dari session.
         session.pop('esp32_cam_ip', None)
-        flash('Alamat IP Kamera dihapus dari sesi ini. Menggunakan default (jika ada).', 'info')
+        flash('Alamat IP Kamera telah dihapus dari sesi ini.', 'info')
         app.logger.info(f"User {session.get('username')} menghapus IP Kamera dari sesi.")
     return redirect(url_for('dashboard'))
 
@@ -477,30 +499,32 @@ def update_cam_ip() -> FlaskResponse:
 def get_gemini_description(image_path_for_gemini: str, detected_class_name: str) -> str:
     if not GEMINI_API_KEY or not genai:
         app.logger.warning("Gemini API tidak dikonfigurasi. Mengembalikan deskripsi default.")
-        return "Deskripsi generatif tidak tersedia karena API Gemini tidak dikonfigurasi."
+        return "Deskripsi generatif tidak tersedia karena API Gemini tidak dikonfigurasi atau terjadi kesalahan."
     try:
         # Mengganti model lama 'gemini-pro-vision' dengan model yang lebih baru dan disarankan.
         # 'gemini-1.5-flash-latest' adalah pilihan yang baik untuk kecepatan dan biaya.
-        model_gemini = genai.GenerativeModel('gemini-1.5-flash-latest')
-        
+        model_gemini = genai.GenerativeModel('gemini-1.5-flash-latest') # type: ignore
+
         # Pastikan file ada sebelum mencoba mengunggah
         if not os.path.exists(image_path_for_gemini):
             app.logger.error(f"GEMINI ERROR: File gambar tidak ditemukan di path: {image_path_for_gemini}")
             return f"Gagal menghasilkan deskripsi: File gambar sumber tidak ditemukan ({os.path.basename(image_path_for_gemini)})."
 
-        image_input = genai.upload_file(image_path_for_gemini)
+        image_input = genai.upload_file(image_path_for_gemini) # type: ignore
         prompt = (
-            f"Analisis gambar ini yang diduga menunjukkan kondisi oli sepeda motor atau bisa saja merek oli motor. "
-            f"Model deteksi objek mengidentifikasi area/objek utama sebagai '{detected_class_name}'.\n\n"
-            f"Berdasarkan visual pada gambar dan identifikasi '{detected_class_name}', jelaskan kondisi kualitas oli tersebut. "
-            f"Berikan juga rekomendasi perawatan atau penggantian oli yang relevan, serta saran umum terkait penggunaan oli tersebut "
-            f"untuk menjaga performa mesin sepeda motor.\n\n"
-            f"PENTING: Jawaban harus terdiri dari maksimal 3 paragraf. Setiap paragraf tidak boleh lebih dari 8 kalimat. "
-            f"Gunakan bahasa yang jelas dan ringkas."
+            f"Analisis gambar ini. Model deteksi objek mengidentifikasi objek/area utama sebagai '{detected_class_name}'.\n\n"
+            f"Berdasarkan visual pada gambar dan identifikasi '{detected_class_name}':\n"
+            f"1. Jelaskan secara umum objek yang terlihat pada gambar dan konteksnya.\n"
+            f"2. Jika '{detected_class_name}' terkait dengan kondisi oli sepeda motor (misalnya kelas seperti 'Oli Baik', 'Oli Buruk', atau nama merek oli), berikan analisis singkat mengenai kualitas oli tersebut dan saran perawatan atau penggantian yang relevan.\n"
+            f"3. Jika '{detected_class_name}' adalah 'manusia' atau 'person', atau terkait dengan aktivitas manusia, deskripsikan apa yang mungkin dilakukan orang tersebut atau situasi yang terlihat.\n"
+            f"4. Jika '{detected_class_name}' terkait dengan merek atau warna sepeda motor (misalnya 'Honda', 'Yamaha', 'Merah', 'Biru'), deskripsikan merek atau warna tersebut. Jika memungkinkan, sebutkan juga kemungkinan model motor jika terlihat jelas dari gambar.\n"
+            f"5. Jika '{detected_class_name}' bukan salah satu di atas, berikan deskripsi umum yang paling relevan untuk objek tersebut berdasarkan visual gambar.\n\n"
+            f"PENTING: Jawaban harus terstruktur, jelas, dan ringkas, terdiri dari maksimal 3 paragraf. Setiap paragraf tidak boleh lebih dari 8 kalimat."
         )
+
         response = model_gemini.generate_content([prompt, image_input])
-        # Hapus file yang diunggah ke Gemini setelah digunakan jika perlu (opsional)
-        # genai.delete_file(image_input.name) 
+        # Hapus file yang diunggah ke Gemini setelah digunakan jika perlu (opsional, tergantung kebijakan)
+        # genai.delete_file(image_input.name)
         return response.text if response.text else "Tidak ada teks yang dihasilkan oleh Gemini."
     except Exception as e:
         app.logger.error(f"Error saat menghubungi Gemini API: {e}")
@@ -509,25 +533,24 @@ def get_gemini_description(image_path_for_gemini: str, detected_class_name: str)
         return f"Gagal menghasilkan deskripsi dari Gemini: {e}"
 
 def _process_image_data_and_save_detection(
-    original_image_np: np.ndarray, 
-    user_id: int, 
-    upload_folder: str, 
-    yolo_model: Optional[YOLO],
+    original_image_np: np.ndarray,
+    user_id: int,
+    upload_folder: str,
     gemini_api_key_present: bool
 ) -> Tuple[bool, str, Optional[int]]:
     """
-    Memproses gambar NumPy, melakukan deteksi YOLO, menyimpan gambar, 
+    Memproses gambar NumPy, melakukan deteksi YOLO, menyimpan gambar,
     mendapatkan deskripsi Gemini, dan menyimpan hasil ke database.
-
+    Menggunakan model global model_yolo_oil, model_yolo_human, dan model_yolo_motorcycle.
     Mengembalikan: (success_status, message_or_error, detection_id_if_success)
     """
-    if yolo_model is None:
-        return False, "Model YOLO tidak dimuat.", None
+    if model_yolo_oil is None and model_yolo_human is None and model_yolo_motorcycle is None:
+        return False, "Tidak ada model YOLO yang dimuat.", None
 
     try:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_image_name = f"capture_{user_id}_{timestamp_str}"
-        
+
         original_image_filename = f"{base_image_name}_original.jpg"
         absolute_original_image_path = os.path.join(upload_folder, original_image_filename)
 
@@ -542,47 +565,112 @@ def _process_image_data_and_save_detection(
             return False, "Gagal menyimpan gambar asli.", None
         app.logger.info(f"Gambar asli dari browser disimpan di: {absolute_original_image_path}")
 
-        app.logger.info("Melakukan deteksi YOLO pada frame (in-memory) yang diterima dari browser.")
-        results = yolo_model(original_image_np, verbose=False)
+        annotated_image_to_save = original_image_np.copy()
+        all_detection_details = [] # Untuk menyimpan string seperti "ClassName: Confidence% (Type)"
+        all_detected_class_names = [] # Untuk menyimpan hanya ClassName
+        class_for_gemini_description: Optional[str] = None # Variabel untuk kelas yang akan dideskripsikan Gemini
 
-        detected_class_name = "Tidak Terdeteksi"
-        confidence_score_str = "0.00%"
-        generative_desc = "Tidak ada objek yang terdeteksi atau model tidak dapat mengklasifikasikan."
+        # Initialize db_detected_class_name and db_confidence_score_str with defaults.
+        # These will be overwritten if detections are found.
+        db_detected_class_name: str = "Tidak ada objek terdeteksi"
+        db_confidence_score_str: str =""
 
-        # Tentukan gambar mana yang akan disimpan ke annotated_path (bisa gambar asli jika tidak ada deteksi/error plot)
-        image_to_save_for_annotated_path = original_image_np
-        log_prefix_for_annotated_save = "Gambar asli (sebagai fallback untuk anotasi)"
-
-        if results and results[0].boxes:
-            first_detection_box = results[0].boxes[0] 
-            class_id = int(first_detection_box.cls[0].item())
-            detected_class_name = yolo_model.names.get(class_id, f"Unknown Class {class_id}")
-            confidence_score_val = float(first_detection_box.conf[0].item())
-            confidence_score_str = f"{confidence_score_val*100:.2f}%"
-            app.logger.info(f"Deteksi: {detected_class_name} dengan akurasi: {confidence_score_str}")
-
-            try:
-                plotted_image_np = results[0].plot()
-                image_to_save_for_annotated_path = plotted_image_np
-                log_prefix_for_annotated_save = "Gambar teranotasi"
-            except Exception as plot_err:
-                app.logger.error(f"Error saat membuat gambar anotasi: {plot_err}. Menggunakan gambar asli untuk path anotasi.")
-                # image_to_save_for_annotated_path tetap original_image_np
+        # Deteksi Oli
+        if model_yolo_oil:
+            app.logger.info("Melakukan deteksi OLI...")
+            results_oil = model_yolo_oil(original_image_np, verbose=False)
+            if results_oil and results_oil[0].boxes:
+                # Eksplisit menampilkan confidence (akurasi) dan label
+                annotated_image_to_save = results_oil[0].plot(
+                    img=annotated_image_to_save,
+                    conf=True, labels=True)
+                app.logger.info(f"Deteksi OLI ditemukan: {len(results_oil[0].boxes)} objek.")
+                for i, box in enumerate(results_oil[0].boxes):
+                    class_id = int(box.cls[0].item())
+                    class_name = model_yolo_oil.names.get(class_id, f"UnknownOilClass{class_id}")
+                    confidence = float(box.conf[0].item())
+                    all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Oli)")
+                    all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
+                    if i == 0 and not class_for_gemini_description: # Prioritaskan oli pertama untuk Gemini
+                        class_for_gemini_description = class_name
+            else:
+                app.logger.info("Tidak ada OLI yang terdeteksi.")
         else:
-            app.logger.info("Tidak ada objek yang terdeteksi oleh YOLO. Menggunakan gambar asli untuk path anotasi.")
-            # image_to_save_for_annotated_path tetap original_image_np
+            app.logger.warning("Model deteksi OLI tidak dimuat.")
 
-        # Simpan gambar yang dipilih (asli atau teranotasi) ke path anotasi dan periksa keberhasilannya
-        if not cv2.imwrite(absolute_annotated_image_path, image_to_save_for_annotated_path):
+        # Deteksi Manusia
+        if model_yolo_human:
+            app.logger.info("Melakukan deteksi MANUSIA...")
+            results_human = model_yolo_human(original_image_np, verbose=False) # Selalu gunakan original_image_np untuk input model
+            if results_human and results_human[0].boxes:
+                # Eksplisit menampilkan confidence (akurasi) dan label
+                annotated_image_to_save = results_human[0].plot(
+                    img=annotated_image_to_save,
+                    conf=True, labels=True)
+                app.logger.info(f"Deteksi MANUSIA ditemukan: {len(results_human[0].boxes)} objek.")
+                for i, box in enumerate(results_human[0].boxes): # Tambahkan 'i' untuk konsistensi
+                    class_id = int(box.cls[0].item())
+                    class_name = model_yolo_human.names.get(class_id, f"UnknownHumanClass{class_id}")
+                    confidence = float(box.conf[0].item())
+                    all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Manusia)")
+                    all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
+                    if i == 0 and not class_for_gemini_description: # Jika oli tidak diprioritaskan, ambil manusia pertama
+                        class_for_gemini_description = class_name
+            else:
+                app.logger.info("Tidak ada MANUSIA yang terdeteksi.")
+        else:
+            app.logger.warning("Model deteksi MANUSIA tidak dimuat.")
+
+        # Deteksi Merek dan Warna Motor
+        if model_yolo_motorcycle:
+            app.logger.info("Melakukan deteksi MEREK/WARNA MOTOR...")
+            results_motorcycle = model_yolo_motorcycle(original_image_np, verbose=False) # Selalu gunakan original_image_np untuk input model
+            if results_motorcycle and results_motorcycle[0].boxes:
+                # Eksplisit menampilkan confidence (akurasi) dan label
+                annotated_image_to_save = results_motorcycle[0].plot(
+                    img=annotated_image_to_save,
+                    conf=True, labels=True)
+                app.logger.info(f"Deteksi MEREK/WARNA MOTOR ditemukan: {len(results_motorcycle[0].boxes)} objek.")
+                for i, box in enumerate(results_motorcycle[0].boxes):
+                    class_id = int(box.cls[0].item())
+                    class_name = model_yolo_motorcycle.names.get(class_id, f"UnknownMotorcycleClass{class_id}")
+                    confidence = float(box.conf[0].item())
+                    all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Motor)")
+                    all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
+                    if i == 0 and not class_for_gemini_description: # Jika oli/manusia tidak diprioritaskan, ambil motor pertama
+                        class_for_gemini_description = class_name
+            else:
+                app.logger.info("Tidak ada MEREK/WARNA MOTOR yang terdeteksi.")
+        else:
+            app.logger.warning("Model deteksi MEREK/WARNA MOTOR tidak dimuat.")
+
+        if all_detected_class_names:
+            db_detected_class_name = ", ".join(sorted(list(set(all_detected_class_names))))
+            # Only update confidence string if there are actual details.
+            # This ensures that if all_detection_details somehow ends up empty
+            # (despite all_detected_class_names being populated), we use the default "N/A".
+            if all_detection_details:
+                db_confidence_score_str = ", ".join(all_detection_details)
+
+        # Simpan gambar yang dipilih (asli atau teranotasi) ke path anotasi
+        log_prefix_for_annotated_save = "Gambar teranotasi (gabungan)" if all_detection_details else "Gambar asli (tidak ada deteksi)"
+        if not cv2.imwrite(absolute_annotated_image_path, annotated_image_to_save):
             error_msg = f"KRITIS: Gagal menyimpan {log_prefix_for_annotated_save.lower()} ke {absolute_annotated_image_path}."
             app.logger.critical(error_msg)
-            return False, error_msg, None # Penting: jangan buat entri DB jika penyimpanan ini gagal.
+            return False, error_msg, None
         app.logger.info(f"{log_prefix_for_annotated_save} berhasil disimpan di: {absolute_annotated_image_path}")
 
-        if gemini_api_key_present and detected_class_name != "Tidak Terdeteksi": # Hanya panggil Gemini jika ada deteksi
-            generative_desc = get_gemini_description(absolute_original_image_path, detected_class_name)
+        # Deskripsi Gemini (prioritas oli, kemudian manusia, kemudian motor)
+        generative_desc = "Tidak ada objek yang terdeteksi atau model tidak dapat mengklasifikasikan."
+        if gemini_api_key_present and class_for_gemini_description:
+            app.logger.info(f"Meminta deskripsi Gemini untuk kelas: {class_for_gemini_description}")
+            generative_desc = get_gemini_description(absolute_original_image_path, class_for_gemini_description)
         elif not gemini_api_key_present:
-            generative_desc = "Fitur deskripsi Gemini tidak aktif (API Key tidak ditemukan)."
+            generative_desc = "Fitur deskripsi Gemini tidak aktif (API Key tidak ditemukan atau error konfigurasi)."
+        elif gemini_api_key_present and not class_for_gemini_description and all_detection_details: # Ada deteksi lain, tapi bukan prioritas
+            generative_desc = "Deskripsi Gemini tidak dihasilkan (tidak ada objek prioritas (oli/manusia/motor) yang terdeteksi sebagai fokus utama untuk analisis, namun objek lain mungkin terdeteksi)."
+        elif gemini_api_key_present and not all_detection_details: # Tidak ada deteksi sama sekali
+             generative_desc = "Deskripsi Gemini tidak dihasilkan (tidak ada objek yang terdeteksi)."
 
         db_conn = None
         cursor = None
@@ -590,16 +678,16 @@ def _process_image_data_and_save_detection(
             db_conn = get_db_connection()
             if not db_conn:
                 return False, "Gagal terhubung ke database untuk menyimpan deteksi.", None
-            
+
             cursor = db_conn.cursor()
             sql = "INSERT INTO detections (user_id, image_name, image_path, detection_class, confidence_score, generative_description, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s)"
             current_timestamp = datetime.now()
-            val = (user_id, 
-                   annotated_image_filename, 
-                   relative_annotated_image_path, 
-                   detected_class_name, 
-                   confidence_score_str, 
-                   generative_desc, 
+            val = (user_id,
+                   annotated_image_filename,
+                   relative_annotated_image_path,
+                   db_detected_class_name,
+                   db_confidence_score_str,
+                   generative_desc,
                    current_timestamp)
             cursor.execute(sql, val)
             db_conn.commit()
@@ -620,15 +708,15 @@ def _process_image_data_and_save_detection(
 @app.route('/process_browser_capture', methods=['POST'])
 @login_required
 def process_browser_capture() -> Tuple[Dict[str, Any], int]:
-    if not model_yolo:
-        return {"status": "error", "message": "Model YOLO tidak berhasil dimuat."}, 503
+    if not model_yolo_oil and not model_yolo_human and not model_yolo_motorcycle: # Cek apakah setidaknya satu model dimuat
+        return {"status": "error", "message": "Tidak ada model YOLO yang berhasil dimuat."}, 503
 
     data = request.get_json()
     if not data or 'image_data_url' not in data:
         return {"status": "error", "message": "Data gambar tidak ditemukan dalam permintaan."}, 400
 
     image_data_url = data['image_data_url']
-    
+
     try:
         # Pisahkan header dari data base64
         # Format data URL: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..."
@@ -640,12 +728,11 @@ def process_browser_capture() -> Tuple[Dict[str, Any], int]:
             return {"status": "error", "message": "Gagal mendekode data gambar dari base64."}, 400
 
         user_id = session['user_id']
-        
+
         success, message, detection_id = _process_image_data_and_save_detection(
-            image_np, 
-            user_id, 
-            app.config['UPLOAD_FOLDER'], 
-            model_yolo, 
+            image_np,
+            user_id,
+            app.config['UPLOAD_FOLDER'],
             bool(GEMINI_API_KEY)
         )
 
@@ -665,9 +752,8 @@ def get_snapshot_for_canvas() -> Tuple[Dict[str, Any], int]:
     if not camera_base_ip:
         return {"status": "error", "message": "IP Kamera tidak dikonfigurasi."}, 400
 
-    # Meskipun tidak digunakan langsung untuk snapshot, ini bisa jadi indikasi sistem belum siap
-    # if not model_yolo:
-    #     return {"status": "error", "message": "Model YOLO tidak siap."}, 503
+    # Tidak perlu cek model YOLO di sini karena ini hanya untuk mengambil snapshot mentah
+    # Pengecekan model dilakukan saat pemrosesan.
 
     # Tentukan URL dan metode capture berdasarkan apakah CAMERA_CAPTURE_PATH adalah stream atau bukan
     # Ini penting untuk menghindari timeout pada /stream jika menggunakan requests.get().content
@@ -680,7 +766,7 @@ def get_snapshot_for_canvas() -> Tuple[Dict[str, Any], int]:
         app.logger.info(f"Snapshot for Canvas: Menggunakan OpenCV untuk mengambil frame dari stream URL: {snapshot_url}")
         # Sesuaikan timeout untuk OpenCV jika perlu, misal open_stream_timeout_sec=15, read_frame_timeout=10
         image_np, error_msg = capture_single_frame_from_stream_cv2(
-            snapshot_url, open_stream_timeout_sec=20, read_frame_timeout=10 
+            snapshot_url, open_stream_timeout_sec=20, read_frame_timeout=10
         )
     else: # Asumsikan ini adalah endpoint snapshot statis
         image_np, error_msg = capture_single_frame_from_http_endpoint(
@@ -694,10 +780,10 @@ def get_snapshot_for_canvas() -> Tuple[Dict[str, Any], int]:
         is_success, buffer = cv2.imencode(".jpg", image_np)
         if not is_success:
             return {"status": "error", "message": "Gagal meng-encode snapshot ke JPEG."}, 500
-        
+
         image_base64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
         image_data_url = f"data:image/jpeg;base64,{image_base64}"
-        
+
         return {"status": "success", "image_data_url": image_data_url}, 200
     except Exception as e:
         app.logger.error(f"Snapshot for Canvas: Error encoding image - {str(e)}", exc_info=True)
@@ -724,13 +810,13 @@ def uji_kamera_page() -> str:
 
 @app.route('/api/capture_and_process', methods=['POST'])
 @login_required
-def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]]:
+def api_capture_and_process() -> Union[FlaskResponse, WerkzeugResponse, Tuple[Dict[str, Any], int]]:
     camera_base_ip = get_camera_base_ip()
     if not camera_base_ip:
         return {"error": "Alamat IP Kamera belum dikonfigurasi."}, 503
 
-    if not model_yolo:
-        return {"error": "Model YOLO tidak berhasil dimuat."}, 503
+    if not model_yolo_oil and not model_yolo_human and not model_yolo_motorcycle:
+        return {"error": "Tidak ada model YOLO yang berhasil dimuat."}, 503
 
     # Tentukan URL dan metode capture
     capture_path_to_use = str(CAMERA_CAPTURE_PATH) # Ensure it's a string
@@ -749,25 +835,48 @@ def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]
         else: # Asumsikan endpoint snapshot statis
             img_np, error_msg = capture_single_frame_from_http_endpoint(
                 single_image_capture_url, timeout=CAMERA_REQUEST_TIMEOUT)
-        
+
         if error_msg or img_np is None:
             app.logger.error(f"API Error capturing frame from ({single_image_capture_url}): {error_msg}")
             return {"error": f"Gagal mengambil gambar dari kamera ({CAMERA_CAPTURE_PATH}): {error_msg}"}, 502
 
         try:
-            # img_np sudah merupakan array NumPy (BGR) dari capture_single_frame_from_http_endpoint
-            # Lakukan inferensi YOLO pada array NumPy
-            results = model_yolo(img_np, verbose=False)
-            # results[0].plot() mengembalikan NumPy array (BGR) dari gambar dengan deteksi.
-            # Jika tidak ada deteksi, ia akan mengembalikan gambar asli.
-            annotated_image_bgr_np = results[0].plot() 
+            annotated_image_bgr_np = img_np.copy() # Mulai dengan gambar asli
+
+            # Proses dengan model oli jika ada
+            if model_yolo_oil:
+                results_oil = model_yolo_oil(img_np, verbose=False)
+                if results_oil and results_oil[0].boxes:
+                    # Eksplisit menampilkan confidence (akurasi) dan label
+                    annotated_image_bgr_np = results_oil[0].plot(
+                        img=annotated_image_bgr_np,
+                        conf=True, labels=True)
+
+            # Proses dengan model manusia jika ada
+            if model_yolo_human:
+                results_human = model_yolo_human(img_np, verbose=False) # Gunakan img_np asli untuk input model
+                if results_human and results_human[0].boxes:
+                    # Eksplisit menampilkan confidence (akurasi) dan label
+                    annotated_image_bgr_np = results_human[0].plot(
+                        img=annotated_image_bgr_np,
+                        conf=True, labels=True)
+
+            # Proses dengan model merek/warna motor jika ada
+            if model_yolo_motorcycle:
+                results_motorcycle = model_yolo_motorcycle(img_np, verbose=False) # Gunakan img_np asli untuk input model
+                if results_motorcycle and results_motorcycle[0].boxes:
+                    # Eksplisit menampilkan confidence (akurasi) dan label
+                    annotated_image_bgr_np = results_motorcycle[0].plot(
+                        img=annotated_image_bgr_np,
+                        conf=True, labels=True)
+
 
             # Konversi array NumPy (BGR) ke format JPEG bytes
             encode_success, image_buffer = cv2.imencode('.jpg', annotated_image_bgr_np)
             if not encode_success:
                 app.logger.error("API Error: Gagal meng-encode gambar hasil anotasi ke JPEG.")
                 return {"error": "Gagal memproses gambar hasil anotasi."}, 500
-            
+
             processed_image_bytes = image_buffer.tobytes()
             return FlaskResponse(processed_image_bytes, mimetype='image/jpeg')
 
@@ -783,7 +892,7 @@ def api_capture_and_process() -> Union[FlaskResponse, Tuple[Dict[str, str], int]
 
 @app.route('/hasil/<int:detection_id>')
 @login_required
-def hasil(detection_id: int) -> Union[str, FlaskResponse]:
+def hasil(detection_id: int) -> Union[str, WerkzeugResponse]:
     detection_data: Optional[Dict[str, Any]] = None
     conn = get_db_connection()
     cursor = None
@@ -791,7 +900,7 @@ def hasil(detection_id: int) -> Union[str, FlaskResponse]:
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT * FROM detections WHERE id = %s AND user_id = %s", (detection_id, session['user_id']))
-            detection_data = cursor.fetchone()
+            detection_data = cursor.fetchone() # type: ignore[assignment]
         except mysql.connector.Error as err:
             flash(f"Error saat mengambil data deteksi: {err}", "danger")
         finally:
@@ -828,7 +937,7 @@ def histori() -> str:
 
 @app.route('/hapus_deteksi/<int:detection_id>', methods=['GET']) # Sebaiknya POST untuk aksi destruktif, tapi GET digunakan sesuai link di HTML
 @login_required
-def hapus_deteksi(detection_id: int) -> FlaskResponse:
+def hapus_deteksi(detection_id: int) -> WerkzeugResponse:
     conn = None
     cursor = None
     try:
@@ -840,9 +949,9 @@ def hapus_deteksi(detection_id: int) -> FlaskResponse:
         cursor = conn.cursor(dictionary=True)
 
         # 1. Ambil detail deteksi untuk mendapatkan nama file gambar
-        cursor.execute("SELECT image_name FROM detections WHERE id = %s AND user_id = %s", 
-                       (detection_id, session['user_id']))
-        detection_row: Optional[Dict[str, Any]] = cursor.fetchone()
+        cursor.execute("SELECT image_name FROM detections WHERE id = %s AND user_id = %s",
+                       (detection_id, session['user_id'])) # type: ignore[assignment]
+        detection_row: Optional[Dict[str, Any]] = cursor.fetchone() # type: ignore[assignment]
 
         if not detection_row:
             flash('Riwayat deteksi tidak ditemukan atau Anda tidak memiliki izin untuk menghapusnya.', 'warning')
@@ -850,7 +959,7 @@ def hapus_deteksi(detection_id: int) -> FlaskResponse:
 
         # 2. Hapus file gambar terkait
         image_name_from_db = str(detection_row['image_name']) # Ini adalah nama file anotasi
-        
+
         # Path absolut ke file anotasi
         annotated_image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_name_from_db)
 
@@ -875,7 +984,7 @@ def hapus_deteksi(detection_id: int) -> FlaskResponse:
             app.logger.warning(f"File anotasi tidak ditemukan (tidak jadi dihapus): {annotated_image_path}")
 
         # 3. Hapus record dari database (setelah file berhasil/gagal dihapus)
-        cursor.execute("DELETE FROM detections WHERE id = %s AND user_id = %s", 
+        cursor.execute("DELETE FROM detections WHERE id = %s AND user_id = %s",
                        (detection_id, session['user_id']))
         conn.commit()
 
@@ -894,12 +1003,12 @@ def hapus_deteksi(detection_id: int) -> FlaskResponse:
     finally:
         if cursor: cursor.close()
         if conn and conn.is_connected(): conn.close()
-    
+
     return redirect(url_for('histori'))
 
 @app.route('/logout')
 @login_required
-def logout() -> FlaskResponse:
+def logout() -> WerkzeugResponse:
     session.clear() # Membersihkan semua data session
     flash('Anda telah logout.', 'success')
     return redirect(url_for('login'))
@@ -933,6 +1042,7 @@ def internal_server_error(e: Any) -> Tuple[str, int]:
     # Log error internal server
     app.logger.error(f"Internal Server Error: {e}", exc_info=True)
     return render_template('errors/500.html', title="Kesalahan Server"), 500
- 
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+    

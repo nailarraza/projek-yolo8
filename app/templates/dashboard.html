@@ -48,21 +48,21 @@
                 <div class="card-header">
                     Tampilan Kamera Realtime (ESP32-CAM)
                 </div>
-                <div id="streamStatusMessage" class="alert alert-info m-3" style="display: none;" role="alert"></div>
-                <div class="card-body text-center" style="min-height: 280px; display: flex; align-items: center; justify-content: center; background-color: #f8f9fa;">
+                <div id="streamStatusMessage" class="alert alert-info m-3 d-none" role="alert"></div>
+                <div class="card-body text-center d-flex align-items-center justify-content-center bg-light camera-view-card-body">
                     {% if esp32_stream_url and camera_configured %}
-                        <img id="cameraFeed" src="{{ esp32_stream_url }}" alt="Live Camera Feed ESP32-CAM" class="img-fluid rounded border" style="max-height: 480px; background-color: #eee;" onerror="handleStreamError(this, '{{ current_cam_ip }}')">
+                        <img id="cameraFeed" src="{{ esp32_stream_url }}" alt="Live Camera Feed ESP32-CAM" class="img-fluid rounded border camera-feed-image" onerror="handleStreamError(this, '{{ current_cam_ip }}')">
                     {% elif current_cam_ip and not camera_configured %}
                         <div class="text-center p-3">
                             <i class="fas fa-video-slash fa-3x text-muted mb-2"></i>
                             <p class="text-muted">Tidak dapat terhubung ke stream kamera di <strong>{{ current_cam_ip }}</strong>.<br>Pastikan IP benar dan kamera aktif, atau coba verifikasi ulang IP.</p>
-                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border" style="max-height: 200px; opacity: 0.5;">
+                            <img src="{{ url_for('static', filename='images/placeholder_no_stream.png') }}" alt="Stream tidak tersedia" class="img-fluid rounded border placeholder-image-sm opacity-50">
                         </div>
                     {% else %}
                          <div class="text-center p-3">
                             <i class="fas fa-camera fa-3x text-muted mb-2"></i>
                             <p class="text-muted">Stream kamera akan tampil di sini setelah IP Kamera dikonfigurasi.</p>
-                            <img src="{{ url_for('static', filename='images/placeholder_no_cam.png') }}" alt="Kamera tidak dikonfigurasi" class="img-fluid rounded border" style="max-height: 200px; opacity: 0.5;">
+                            <img src="{{ url_for('static', filename='images/placeholder_no_cam.png') }}" alt="Kamera tidak dikonfigurasi" class="img-fluid rounded border placeholder-image-sm opacity-50">
                         </div>
                     {% endif %}
                 </div>
@@ -75,17 +75,17 @@
                     Kontrol Deteksi
                 </div>
                 <div class="card-body">
-                    <p>Klik tombol untuk mengambil gambar dari tampilan di samping dan melakukan deteksi kualitas oli.</p>
+                    <p>Klik tombol untuk mengambil gambar dari tampilan di samping dan melakukan deteksi objek.</p>
                     <button id="captureAndDetectButton" type="button" class="btn btn-success w-100 mb-2" {% if not camera_configured %}disabled{% endif %}>
                         <i class="fas fa-camera"></i> Tangkap & Deteksi
                     </button>
-                    <div id="captureSpinner" class="text-center mt-2" style="display: none;">
+                    <div id="captureSpinner" class="text-center mt-2 d-none">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
                         <p>Memproses gambar...</p>
                     </div>
-                    <div id="captureUserMessage" class="alert mt-2" style="display: none;" role="alert"></div>
+                    <div id="captureUserMessage" class="alert mt-2 d-none" role="alert"></div>
 
                     <hr>
                     {% if not camera_configured %}
@@ -101,7 +101,7 @@
 </div>
 
 <!-- Canvas tersembunyi untuk menggambar frame dari img -->
-<canvas id="hiddenCanvas" style="display:none;"></canvas>
+<canvas id="hiddenCanvas" class="d-none"></canvas>
 {% endblock %}
 
 {% block scripts_extra %}
@@ -121,13 +121,19 @@
             streamStatusMessage.style.display = 'block';
         }
         // Ganti src dengan placeholder jika error
-        imageElement.src = "{{ url_for('static', filename='images/placeholder_no_stream.png') }}";
+        const placeholderSrc = "{{ url_for('static', filename='images/placeholder_no_stream.png') }}";
+        // Hanya set src ke placeholder jika belum placeholder, untuk menghindari trigger yang tidak perlu
+        if (imageElement.src !== placeholderSrc) {
+            imageElement.src = placeholderSrc;
+        }
         imageElement.alt = "Gagal memuat stream kamera";
+        // Penting: Hapus onerror untuk mencegah loop jika placeholder itu sendiri gagal dimuat (misalnya karena 404)
+        imageElement.onerror = null; 
+
         if (captureButton) {
             captureButton.disabled = true; // Nonaktifkan tombol capture jika stream gagal
         }
     }
-
     function showCaptureMessage(message, type = 'info') {
         if (captureUserMessage) {
             captureUserMessage.innerHTML = message;

@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>Riwayat Deteksi Kualitas Oli</h2>
+    <h2>Riwayat Deteksi Pengguna</h2>
     <hr>
     <a href="{{ url_for('dashboard') }}" class="btn btn-primary mt-3">Kembali ke Dashboard</a>
     <br><br>
@@ -36,7 +36,7 @@
                         </a>
                     </th>
                     <th scope="col">Gambar (Preview)</th>
-                    <th scope="col">
+                   <!-- <th scope="col">
                         {% set sort_key_cls = 'detection_class' %}
                         {% set next_order_cls = 'asc' if current_sort_col == sort_key_cls and current_sort_order == 'desc' else 'desc' %}
                         {% set query_params_cls = request.args.to_dict() %}
@@ -54,8 +54,8 @@
                             {% endif %}
                             </span>
                         </a>
-                    </th>
-                    <th scope="col">
+                    </th>-->
+                    <!--<th scope="col">
                         {% set sort_key_acc = 'confidence_score' %}
                         {% set next_order_acc = 'desc' if current_sort_col == sort_key_acc and current_sort_order == 'asc' else 'asc' %}
                         {% set query_params_acc = request.args.to_dict() %}
@@ -73,7 +73,7 @@
                             {% endif %}
                             </span>
                         </a>
-                    </th>
+                    </th>-->
                     <th scope="col">Aksi</th>
                 </tr>
             </thead>
@@ -93,7 +93,7 @@
                              alt="Gambar Tidak Tersedia" class="img-thumbnail" style="width: 100px;">
                         {% endif %}
                     </td>
-                    <td>
+                    <!--<td>
                         {% if detection.detection_class == "Oli Baik" %}
                             <span class="badge bg-success">{{ detection.detection_class }}</span>
                         {% elif detection.detection_class == "Oli Perlu Ganti" %}
@@ -103,8 +103,8 @@
                         {% else %}
                             <span class="badge bg-secondary">N/A</span>
                         {% endif %}
-                    </td>
-                    <td>{{ ('%.2f'|format(detection.confidence_score)).replace('.', ',') ~ ' %' if detection.confidence_score is not none else 'N/A' }}</td>
+                    </td>-->
+                    <!--<td>{{ ('%.2f'|format(detection.confidence_score)).replace('.', ',') ~ ' %' if detection.confidence_score is not none and detection.confidence_score != 0.0 else 'N/A' }}</td>-->
                     <td>
                         <a href="{{ url_for('hasil', detection_id=detection.id) }}" class="btn btn-sm btn-info me-1">
                             Lihat Detail

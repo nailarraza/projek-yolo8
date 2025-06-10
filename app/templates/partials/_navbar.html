@@ -1,15 +1,15 @@
 <nav class="navbar navbar-expand-lg navbar-dark navbar-custom fixed-top">
     <div class="container-fluid">
         <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
-            <img src="{{ url_for('static', filename='img/fav.png') }}" alt="Logo" width="40" height="40" class="me-2">
-            Sistem Deteksi Oli Motor
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" width="40" height="40" class="me-2">
+            Sistem Deteksi Objek Terintegrasi
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNavDropdown">
             <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                {% if session.user_id %}
+                {%- if session.user_id %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
                     </li>
@@ -31,8 +31,8 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'register' %}active{% endif %}" href="{{ url_for('register') }}">Register</a>
                     </li>
-                {% endif %}
-                 <li class="nav-item">
+                {%- endif -%}
+                <li class="nav-item">
                     <a class="nav-link" href="#aboutModal" data-bs-toggle="modal" data-bs-target="#aboutModal">Tentang</a>
                 </li>
                 <li class="nav-item">
@@ -53,13 +53,13 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p class="text-center">Aplikasi Sistem Deteksi Kualitas Oli Motor.</p>
-        <p class="text-center">Versi Produksi 1.4.5</p>
+        <p class="text-center">Aplikasi Sistem Deteksi Objek Terintegrasi (Kualitas Oli)</p>
+        <p class="text-center">Versi Produksi 1.5.6</p>
         <p class="text-center">
-            <img src="{{ url_for('static', filename='img/logo-kampus.png') }}" alt="Logo Kampus" class="mx-auto d-block" style="max-width: 150px; height: auto;">
+            <img src="{{ url_for('static', filename='img/logo-kampus.png') }}" alt="Logo Kampus" class="mx-auto d-block logo-kampus-modal">
         </p>
         <p class="text-center">Dikembangkan oleh Nailar Raza <br> untuk edukasi dan demonstrasi.</p>
-        <p class="text-center">Proyek ini bertujuan untuk memperoleh gelar Sarjana (S1) <br> Program Studi Teknik Informatika <br> Fakultas Teknik <br> Universitas Muhammadiyah Ponorogo<br> </p>
+        <p class="text-center">Proyek ini digunakan untuk memperoleh gelar Sarjana (S1) <br> Program Studi Teknik Informatika <br> Fakultas Teknik <br> Universitas Muhammadiyah Ponorogo<br> </p>
       </div>
       <!--<div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>

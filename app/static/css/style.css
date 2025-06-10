@@ -102,3 +102,28 @@ body {
         border-radius: 0 0 0.5rem 0.5rem !important; /* Atur border radius bawah */
     }
 }
+
+/* Custom styles for dashboard page */
+
+.camera-view-card-body {
+    min-height: 280px;
+    /* background-color: #f8f9fa; /* Handled by Bootstrap's .bg-light class */
+    /* display: flex; align-items: center; justify-content: center; /* Handled by Bootstrap d-flex classes */
+}
+
+.camera-feed-image {
+    max-height: 480px;
+    background-color: #eee; /* Custom background color for the feed */
+}
+
+.placeholder-image-sm {
+    max-height: 200px;
+    /* opacity: 0.5; /* Handled by Bootstrap's .opacity-50 class */
+}
+
+/* Elements initially hidden (like #streamStatusMessage, #captureSpinner, #captureUserMessage, #hiddenCanvas) use Bootstrap's .d-none class. JavaScript handles their visibility toggling. */
+
+.logo-kampus-modal {
+    max-width: 150px;
+    height: auto;
+}

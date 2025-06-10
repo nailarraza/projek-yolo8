@@ -82,8 +82,36 @@ void handleStream() {
     // Tambahkan delay untuk mengurangi beban CPU dan potensi overheat, terutama pada resolusi tinggi.
     // Nilai 100 menghasilkan ~10 FPS. Nilai 150 ~6-7 FPS. Nilai 200 ~5 FPS.
     // FPS yang lebih rendah berarti lebih sedikit panas.
-    delay(150); // Naikkan dari 100. Coba 150 atau 200 jika masih panas.
+    // Coba nilai antara 200-250ms jika 150ms masih menghasilkan panas berlebih.
+    // Untuk frame rate lebih lancar, kita kurangi delay ini.
+    // Misalnya, 100ms untuk ~10 FPS, 66ms untuk ~15 FPS.
+    // Perhatikan potensi peningkatan panas.
+    delay(100); // Dikurangi dari 200ms untuk meningkatkan FPS. Sesuaikan jika terlalu panas.
   }
+}
+
+void connectToWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+  Serial.println("Menghubungkan ke WiFi...");
+  WiFi.begin(ssid, password);
+
+  unsigned long startTime = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    if (millis() - startTime > 20000) { // Timeout 20 detik
+      Serial.println("\nWiFi gagal terhubung. Mencoba lagi dalam 10 detik...");
+      // Bisa ditambahkan logika restart ESP jika gagal berkali-kali
+      delay(10000);
+      startTime = millis(); // Reset timeout untuk percobaan berikutnya
+      // WiFi.begin(ssid, password); // Atau cukup biarkan loop utama yang memanggil lagi
+    }
+  }
+  Serial.println("\nWiFi terhubung!");
+  Serial.print("Alamat IP: ");
+  Serial.println(WiFi.localIP());
 }
 
 void setup() {
@@ -94,7 +122,13 @@ void setup() {
   // Frekuensi default biasanya 240MHz atau 160MHz. Coba set ke 160MHz atau bahkan 80MHz.
   // PERHATIAN: Penurunan frekuensi CPU yang terlalu drastis dapat mempengaruhi kinerja kamera.
   // Uji dengan hati-hati. Jika kamera gagal init atau stream tidak stabil, kembalikan ke default atau coba nilai yang lebih tinggi.
-  // setCpuFrequencyMhz(160); // Aktifkan baris ini untuk mencoba 160MHz.
+  // Mengatur frekuensi CPU ke 80MHz dapat secara signifikan mengurangi panas.
+  // Jika mengalami masalah stabilitas atau kinerja kamera menurun drastis setelah meningkatkan resolusi/kualitas gambar,
+  // coba naikkan frekuensi CPU ke 160MHz atau bahkan 240MHz.
+  // PERHATIAN: Menaikkan frekuensi CPU akan meningkatkan panas.
+  // setCpuFrequencyMhz(80); // Sebelumnya 80MHz untuk pengurangan panas.
+  setCpuFrequencyMhz(160); // Dinaikkan ke 160MHz untuk performa lebih baik.
+                           // Opsi lain: 240MHz untuk performa maksimal, tapi panas lebih tinggi.
   Serial.setDebugOutput(true);
   Serial.println();
 
@@ -117,34 +151,40 @@ void setup() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 16000000; // Turunkan dari 20MHz ke 16MHz.
-                                  // PENTING: Jika ESP32-CAM masih sangat panas setelah penyesuaian lain,
-                                  // coba turunkan nilai ini lebih lanjut ke 10000000 (10MHz).
-                                  // Ini dapat mengurangi panas secara signifikan, namun mungkin
-                                  // mempengaruhi frame rate maksimum atau kompatibilitas dengan beberapa sensor.
+  config.xclk_freq_hz = 20000000; // Dinaikkan ke 20MHz untuk frame rate dan kualitas gambar yang lebih baik.
+                                  // Untuk kualitas gambar yang lebih baik, terutama pada resolusi tinggi,
+                                  // Anda bisa mencoba menaikkan nilai ini ke 16000000 (16MHz) atau 20000000 (20MHz).
+                                  // PERHATIAN: Menaikkan frekuensi XCLK dapat meningkatkan kualitas gambar dan frame rate
+                                  // namun juga akan meningkatkan konsumsi daya dan panas.
+                                  // Sebelumnya 10000000 (10MHz).
   config.pixel_format = PIXFORMAT_JPEG; // PIXFORMAT_RGB565, PIXFORMAT_YUV422
   
   // Frame size - pilih yang sesuai, resolusi tinggi butuh PSRAM dan bisa lebih lambat
   // Untuk Kamera 5MP (seperti OV5640), gunakan FRAMESIZE_QSXGA atau resolusi tinggi lainnya.
   // Pastikan modul ESP32-CAM Anda memiliki PSRAM yang cukup.
-  // Pilihan saat ini adalah XGA (1024x768).
+  // Untuk deteksi objek dengan YOLOv8, resolusi seperti 640x480 (VGA) seringkali merupakan pilihan yang baik.
+  // Ini memberikan keseimbangan antara detail, kecepatan pemrosesan, dan ukuran data.
+  // Model YOLOv8 sering dilatih pada input persegi (misalnya 640x640). Gambar 640x480 dapat
+  // di-padding atau di-crop agar sesuai dengan input model YOLO.
   // config.frame_size = FRAMESIZE_QSXGA; // (2560x1920) - Resolusi sangat tinggi, menghasilkan panas signifikan.
   // config.frame_size = FRAMESIZE_UXGA; // (1600x1200) // Resolusi sebelumnya.
-  // config.frame_size = FRAMESIZE_SXGA; // (1280x1024)
-  // config.frame_size = FRAMESIZE_XGA;  // (1024x768) // Pilihan yang lebih seimbang untuk mengurangi panas.
-  config.frame_size = FRAMESIZE_SVGA; // (800x600) // Turunkan dari XGA ke SVGA untuk mengurangi panas lebih lanjut.
-  // config.frame_size = FRAMESIZE_VGA;  // (640x480)
+  // config.frame_size = FRAMESIZE_SXGA; // (1280x1024) // Resolusi tinggi, FPS lebih rendah.
+  // config.frame_size = FRAMESIZE_SVGA; // (800x600) // Opsi jika VGA kurang detail.
+   config.frame_size = FRAMESIZE_VGA; // (640x480) // Direkomendasikan untuk YOLOv8, keseimbangan panas/performa, dan FPS lebih baik.
+                                     // Opsi lain: FRAMESIZE_SVGA (800x600) jika detail lebih tinggi diperlukan
+                                     // dan model YOLO Anda mendukungnya.
+                                     // Perhatikan potensi peningkatan panas dan penurunan FPS pada resolusi lebih tinggi.
   // config.frame_size = FRAMESIZE_CIF;  // (352x288)
   // config.frame_size = FRAMESIZE_QVGA; // (320x240)
-  // Jika masih buram atau ada masalah, coba turunkan lagi ke SXGA atau XGA.
   // CATATAN: Untuk mengurangi panas secara drastis, pilih resolusi yang lebih rendah seperti SVGA atau VGA.
 
-  config.jpeg_quality = 20; // Naikkan dari 15 ke 20 (atau bahkan 25).
-                            // 0-63, angka lebih RENDAH berarti kualitas LEBIH TINGGI.
+  config.jpeg_quality = 20; // Kualitas JPEG. Rentang nilai: 0-63. Angka LEBIH RENDAH berarti kualitas LEBIH TINGGI.
+                            // Rentang nilai: 0-63. Angka LEBIH RENDAH berarti kualitas LEBIH TINGGI dan kompresi LEBIH KECIL.
                             // Nilai 10-12 memberikan kualitas baik.
-                            // Menaikkan nilai ini ke 15-20 akan MENGURANGI ukuran file JPEG
-                            // dan beban pemrosesan, sehingga MEMBANTU MENGURANGI PANAS.
-                            // Kualitas gambar akan sedikit menurun.
+                            // PERHATIAN: Kualitas yang lebih tinggi (nilai lebih rendah) akan menghasilkan
+                            // ukuran file gambar yang lebih besar dan meningkatkan beban pemrosesan,
+                            // yang dapat meningkatkan panas dan menurunkan FPS.
+                            // Sebelumnya: 25. Disesuaikan menjadi 15 untuk kualitas lebih baik pada resolusi VGA.
   config.fb_count = 1;      // Jika PSRAM lebih banyak, bisa > 1. Untuk stream, 1 atau 2 cukup.
   config.fb_location = CAMERA_FB_IN_PSRAM; // Gunakan PSRAM untuk frame buffer
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
@@ -161,11 +201,12 @@ void setup() {
   sensor_t * s = esp_camera_sensor_get();
   if (s != NULL) { // Pastikan sensor pointer valid
     Serial.printf("Sensor PID: 0x%02x, Version: 0x%02x\n", s->id.PID, s->id.VER); // Cetak info sensor
-    if (s->id.PID == OV5640_PID) {
-      Serial.println("OV5640 sensor detected.");
+    if (s->id.PID == OV5640_PID || s->id.PID == OV3660_PID) { // Tambahkan OV3660 jika relevan, atau sesuaikan
+      Serial.printf("%s sensor detected. Applying specific settings.\n", (s->id.PID == OV5640_PID) ? "OV5640" : "OV3660");
       // Penyesuaian untuk sensor OV5640 (5MP). Aktifkan dan sesuaikan nilai sesuai kebutuhan.
       s->set_vflip(s, 0);       // Vertikal flip: 0 = normal (tidak terbalik atas-bawah), 1 = flipped
-      s->set_hmirror(s, 0);     // Horizontal mirror: 0 = normal (tidak terbalik kiri-kanan, seperti kamera belakang), 1 = mirrored (seperti kamera depan)
+      s->set_hmirror(s, 0);     // Horizontal mirror: 0 = normal (tidak terbalik kiri-kanan, standar untuk deteksi objek), 1 = mirrored (seperti kamera depan)
+                                  // Untuk YOLOv8, umumnya lebih baik menggunakan hmirror=0 (non-mirrored).
       // s->set_brightness(s, 0);  // Kecerahan: -2 (gelap) hingga 2 (terang), default 0
       // s->set_contrast(s, 0);    // Kontras: -2 hingga 2, default 0
       s->set_denoise(s, 0);     // Nonaktifkan fitur denoise internal sensor (sebelumnya 1).
@@ -202,34 +243,87 @@ void setup() {
 
 
   // WiFi connection
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi...");
+  WiFi.mode(WIFI_STA); // Set mode WiFi ke Station
+  WiFi.setAutoReconnect(true); // Aktifkan fitur auto-reconnect bawaan ESP32
+
+  connectToWiFi(); // Panggil fungsi untuk koneksi awal
+
+  // Loop tambahan untuk memastikan koneksi awal berhasil sebelum melanjutkan setup server
+  // Ini penting agar server tidak dimulai jika WiFi belum siap.
+  unsigned long initialWifiConnectTimeout = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    if (millis() - initialWifiConnectTimeout > 30000) { // Timeout 30 detik untuk koneksi awal
+      Serial.println("\nTidak dapat terhubung ke WiFi setelah 30 detik. Periksa kredensial atau jaringan. Restart dalam 10 detik...");
+      delay(10000);
+      ESP.restart();
+    }
   }
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("Camera Stream Ready! Go to: http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("/stream");
 
+  Serial.print("\nCamera Stream Siap! Akses: http://");
+  Serial.println(WiFi.localIP());
 
-  // Setup server routes
+  // Setup rute server
   server.on("/stream", HTTP_GET, handleStream);
   
   server.on("/", HTTP_GET, [](){
     server.send(200, "text/html", 
       "<!DOCTYPE html><html><head><title>ESP32-CAM</title></head><body>"
       "<h1>ESP32-CAM Server</h1>"
-      "<p><a href='/stream'>Stream</a></p>"
+      "<p><a href='/stream'>Stream MJPEG</a></p>"
+      "<p><a href='/capture'>Capture Single JPEG</a></p>" // Link ke endpoint capture baru
       "</body></html>");
   });
 
+  // Rute baru untuk mengambil satu gambar JPEG
+  server.on("/capture", HTTP_GET, handleCapture);
+
   server.begin();
   Serial.println("HTTP server started");
+  Serial.println("Akses /stream untuk MJPEG video stream.");
+  Serial.println("Akses /capture untuk mengambil satu gambar JPEG.");
+}
+
+// Handler untuk capture satu frame JPEG
+void handleCapture() {
+  camera_fb_t * fb = NULL;
+  
+  fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("Gagal mengambil gambar dari kamera");
+    server.send(500, "text/plain", "Gagal mengambil gambar");
+    return;
+  }
+
+  server.setContentLength(fb->len);
+  server.sendHeader("Content-Disposition", "inline; filename=capture.jpg"); // Opsional: menyarankan nama file saat diunduh
+  server.send(200, "image/jpeg", ""); // Kirim header HTTP
+  WiFiClient client = server.client(); // Dapatkan objek client setelah send() atau sendHeader()
+  client.write(fb->buf, fb->len); // Kirim data gambar
+  
+  esp_camera_fb_return(fb); // Kembalikan buffer frame agar memori bisa digunakan lagi
 }
 
 void loop() {
+  // Cek status koneksi WiFi secara berkala
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Koneksi WiFi terputus. Mencoba menghubungkan kembali...");
+    // WiFi.disconnect(true); // Opsional: putuskan koneksi lama sebelum mencoba lagi
+    // delay(100);
+    WiFi.begin(ssid, password); // Coba hubungkan kembali
+    unsigned long reconnectAttemptTime = millis();
+    while(WiFi.status() != WL_CONNECTED && millis() - reconnectAttemptTime < 15000) { // Coba selama 15 detik
+        delay(500);
+        Serial.print(".");
+    }
+    if(WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nBerhasil terhubung kembali ke WiFi.");
+        Serial.print("Alamat IP: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println("\nGagal terhubung kembali ke WiFi. Akan dicoba lagi nanti.");
+    }
+  }
   server.handleClient();
 }

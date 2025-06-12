@@ -58,31 +58,31 @@ except Exception as e:
     app.logger.error(f"Error saat memuat model YOLO untuk OLI dari {MODEL_PATH_OIL}: {e}")
     model_yolo_oil = None
 
-# Model untuk deteksi Manusia
-MODEL_PATH_HUMAN = os.getenv('YOLO_MODEL_HUMAN_PATH', os.path.join('models_yolo', 'best2.pt'))
-model_yolo_human: Optional[YOLO] = None
-try:
-    if os.path.exists(MODEL_PATH_HUMAN):
-        model_yolo_human = YOLO(MODEL_PATH_HUMAN) # type: ignore
-        app.logger.info(f"Model YOLO untuk MANUSIA berhasil dimuat dari {MODEL_PATH_HUMAN}")
-    else:
-        app.logger.error(f"Error: File model YOLO untuk MANUSIA tidak ditemukan di path: {MODEL_PATH_HUMAN}")
-except Exception as e:
-    app.logger.error(f"Error saat memuat model YOLO untuk MANUSIA dari {MODEL_PATH_HUMAN}: {e}")
-    model_yolo_human = None
+# # Model untuk deteksi Manusia
+# MODEL_PATH_HUMAN = os.getenv('YOLO_MODEL_HUMAN_PATH', os.path.join('models_yolo', 'best2.pt'))
+# model_yolo_human: Optional[YOLO] = None
+# try:
+#     if os.path.exists(MODEL_PATH_HUMAN):
+#         model_yolo_human = YOLO(MODEL_PATH_HUMAN) # type: ignore
+#         app.logger.info(f"Model YOLO untuk MANUSIA berhasil dimuat dari {MODEL_PATH_HUMAN}")
+#     else:
+#         app.logger.error(f"Error: File model YOLO untuk MANUSIA tidak ditemukan di path: {MODEL_PATH_HUMAN}")
+# except Exception as e:
+#     app.logger.error(f"Error saat memuat model YOLO untuk MANUSIA dari {MODEL_PATH_HUMAN}: {e}")
+#     model_yolo_human = None
 
-# Model untuk deteksi Merek dan Warna Motor
-MODEL_PATH_MOTORCYCLE = os.getenv('YOLO_MODEL_MOTORCYCLE_PATH', os.path.join('models_yolo', 'best3.pt'))
-model_yolo_motorcycle: Optional[YOLO] = None
-try:
-    if os.path.exists(MODEL_PATH_MOTORCYCLE):
-        model_yolo_motorcycle = YOLO(MODEL_PATH_MOTORCYCLE) # type: ignore
-        app.logger.info(f"Model YOLO untuk MEREK/WARNA MOTOR berhasil dimuat dari {MODEL_PATH_MOTORCYCLE}")
-    else:
-        app.logger.error(f"Error: File model YOLO untuk MEREK/WARNA MOTOR tidak ditemukan di path: {MODEL_PATH_MOTORCYCLE}")
-except Exception as e:
-    app.logger.error(f"Error saat memuat model YOLO untuk MEREK/WARNA MOTOR dari {MODEL_PATH_MOTORCYCLE}: {e}")
-    model_yolo_motorcycle = None
+# # Model untuk deteksi Merek dan Warna Motor
+# MODEL_PATH_MOTORCYCLE = os.getenv('YOLO_MODEL_MOTORCYCLE_PATH', os.path.join('models_yolo', 'best3.pt'))
+# model_yolo_motorcycle: Optional[YOLO] = None
+# try:
+#     if os.path.exists(MODEL_PATH_MOTORCYCLE):
+#         model_yolo_motorcycle = YOLO(MODEL_PATH_MOTORCYCLE) # type: ignore
+#         app.logger.info(f"Model YOLO untuk MEREK/WARNA MOTOR berhasil dimuat dari {MODEL_PATH_MOTORCYCLE}")
+#     else:
+#         app.logger.error(f"Error: File model YOLO untuk MEREK/WARNA MOTOR tidak ditemukan di path: {MODEL_PATH_MOTORCYCLE}")
+# except Exception as e:
+#     app.logger.error(f"Error saat memuat model YOLO untuk MEREK/WARNA MOTOR dari {MODEL_PATH_MOTORCYCLE}: {e}")
+#     model_yolo_motorcycle = None
 
 # Konfigurasi Database MySQL
 # Langsung definisikan kredensial database di sini
@@ -514,12 +514,10 @@ def get_gemini_description(image_path_for_gemini: str, detected_class_name: str)
         prompt = (
             f"Analisis gambar ini. Model deteksi objek mengidentifikasi objek/area utama sebagai '{detected_class_name}'.\n\n"
             f"Berdasarkan visual pada gambar dan identifikasi '{detected_class_name}':\n"
-            f"1. Jelaskan secara umum objek yang terlihat pada gambar dan konteksnya.\n"
+            f"1. Jelaskan secara umum objek yang terlihat pada gambar dan konteksnya, terutama jika terkait dengan '{detected_class_name}'.\n"
             f"2. Jika '{detected_class_name}' terkait dengan kondisi oli sepeda motor (misalnya kelas seperti 'Oli Baik', 'Oli Buruk', atau nama merek oli), berikan analisis singkat mengenai kualitas oli tersebut dan saran perawatan atau penggantian yang relevan.\n"
-            f"3. Jika '{detected_class_name}' adalah 'manusia' atau 'person', atau terkait dengan aktivitas manusia, deskripsikan apa yang mungkin dilakukan orang tersebut atau situasi yang terlihat.\n"
-            f"4. Jika '{detected_class_name}' terkait dengan merek atau warna sepeda motor (misalnya 'Honda', 'Yamaha', 'Merah', 'Biru'), deskripsikan merek atau warna tersebut. Jika memungkinkan, sebutkan juga kemungkinan model motor jika terlihat jelas dari gambar.\n"
-            f"5. Jika '{detected_class_name}' bukan salah satu di atas, berikan deskripsi umum yang paling relevan untuk objek tersebut berdasarkan visual gambar.\n\n"
-            f"PENTING: Jawaban harus terstruktur, jelas, dan ringkas, terdiri dari maksimal 3 paragraf. Setiap paragraf tidak boleh lebih dari 8 kalimat."
+            f"3. Jika '{detected_class_name}' bukan terkait oli, berikan deskripsi umum yang paling relevan untuk objek tersebut berdasarkan visual gambar.\n\n"
+            f"PENTING: Jawaban harus terstruktur, jelas, dan ringkas, terdiri dari maksimal 2-3 paragraf. Setiap paragraf tidak boleh lebih dari 8 kalimat."
         )
 
         response = model_gemini.generate_content([prompt, image_input])
@@ -544,8 +542,8 @@ def _process_image_data_and_save_detection(
     Menggunakan model global model_yolo_oil, model_yolo_human, dan model_yolo_motorcycle.
     Mengembalikan: (success_status, message_or_error, detection_id_if_success)
     """
-    if model_yolo_oil is None and model_yolo_human is None and model_yolo_motorcycle is None:
-        return False, "Tidak ada model YOLO yang dimuat.", None
+    if model_yolo_oil is None: # Hanya cek model oli karena model lain sudah tidak digunakan
+        return False, "Model YOLO untuk deteksi oli tidak berhasil dimuat.", None
 
     try:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -598,51 +596,51 @@ def _process_image_data_and_save_detection(
         else:
             app.logger.warning("Model deteksi OLI tidak dimuat.")
 
-        # Deteksi Manusia
-        if model_yolo_human:
-            app.logger.info("Melakukan deteksi MANUSIA...")
-            results_human = model_yolo_human(original_image_np, verbose=False) # Selalu gunakan original_image_np untuk input model
-            if results_human and results_human[0].boxes:
-                # Eksplisit menampilkan confidence (akurasi) dan label
-                annotated_image_to_save = results_human[0].plot(
-                    img=annotated_image_to_save,
-                    conf=True, labels=True)
-                app.logger.info(f"Deteksi MANUSIA ditemukan: {len(results_human[0].boxes)} objek.")
-                for i, box in enumerate(results_human[0].boxes): # Tambahkan 'i' untuk konsistensi
-                    class_id = int(box.cls[0].item())
-                    class_name = model_yolo_human.names.get(class_id, f"UnknownHumanClass{class_id}")
-                    confidence = float(box.conf[0].item())
-                    all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Manusia)")
-                    all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
-                    if i == 0 and not class_for_gemini_description: # Jika oli tidak diprioritaskan, ambil manusia pertama
-                        class_for_gemini_description = class_name
-            else:
-                app.logger.info("Tidak ada MANUSIA yang terdeteksi.")
-        else:
-            app.logger.warning("Model deteksi MANUSIA tidak dimuat.")
+        # # Deteksi Manusia
+        # if model_yolo_human:
+        #     app.logger.info("Melakukan deteksi MANUSIA...")
+        #     results_human = model_yolo_human(original_image_np, verbose=False) # Selalu gunakan original_image_np untuk input model
+        #     if results_human and results_human[0].boxes:
+        #         # Eksplisit menampilkan confidence (akurasi) dan label
+        #         annotated_image_to_save = results_human[0].plot(
+        #             img=annotated_image_to_save,
+        #             conf=True, labels=True)
+        #         app.logger.info(f"Deteksi MANUSIA ditemukan: {len(results_human[0].boxes)} objek.")
+        #         for i, box in enumerate(results_human[0].boxes): # Tambahkan 'i' untuk konsistensi
+        #             class_id = int(box.cls[0].item())
+        #             class_name = model_yolo_human.names.get(class_id, f"UnknownHumanClass{class_id}")
+        #             confidence = float(box.conf[0].item())
+        #             all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Manusia)")
+        #             all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
+        #             if i == 0 and not class_for_gemini_description: # Jika oli tidak diprioritaskan, ambil manusia pertama
+        #                 class_for_gemini_description = class_name
+        #     else:
+        #         app.logger.info("Tidak ada MANUSIA yang terdeteksi.")
+        # else:
+        #     app.logger.warning("Model deteksi MANUSIA tidak dimuat.")
 
-        # Deteksi Merek dan Warna Motor
-        if model_yolo_motorcycle:
-            app.logger.info("Melakukan deteksi MEREK/WARNA MOTOR...")
-            results_motorcycle = model_yolo_motorcycle(original_image_np, verbose=False) # Selalu gunakan original_image_np untuk input model
-            if results_motorcycle and results_motorcycle[0].boxes:
-                # Eksplisit menampilkan confidence (akurasi) dan label
-                annotated_image_to_save = results_motorcycle[0].plot(
-                    img=annotated_image_to_save,
-                    conf=True, labels=True)
-                app.logger.info(f"Deteksi MEREK/WARNA MOTOR ditemukan: {len(results_motorcycle[0].boxes)} objek.")
-                for i, box in enumerate(results_motorcycle[0].boxes):
-                    class_id = int(box.cls[0].item())
-                    class_name = model_yolo_motorcycle.names.get(class_id, f"UnknownMotorcycleClass{class_id}")
-                    confidence = float(box.conf[0].item())
-                    all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Motor)")
-                    all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
-                    if i == 0 and not class_for_gemini_description: # Jika oli/manusia tidak diprioritaskan, ambil motor pertama
-                        class_for_gemini_description = class_name
-            else:
-                app.logger.info("Tidak ada MEREK/WARNA MOTOR yang terdeteksi.")
-        else:
-            app.logger.warning("Model deteksi MEREK/WARNA MOTOR tidak dimuat.")
+        # # Deteksi Merek dan Warna Motor
+        # if model_yolo_motorcycle:
+        #     app.logger.info("Melakukan deteksi MEREK/WARNA MOTOR...")
+        #     results_motorcycle = model_yolo_motorcycle(original_image_np, verbose=False) # Selalu gunakan original_image_np untuk input model
+        #     if results_motorcycle and results_motorcycle[0].boxes:
+        #         # Eksplisit menampilkan confidence (akurasi) dan label
+        #         annotated_image_to_save = results_motorcycle[0].plot(
+        #             img=annotated_image_to_save,
+        #             conf=True, labels=True)
+        #         app.logger.info(f"Deteksi MEREK/WARNA MOTOR ditemukan: {len(results_motorcycle[0].boxes)} objek.")
+        #         for i, box in enumerate(results_motorcycle[0].boxes):
+        #             class_id = int(box.cls[0].item())
+        #             class_name = model_yolo_motorcycle.names.get(class_id, f"UnknownMotorcycleClass{class_id}")
+        #             confidence = float(box.conf[0].item())
+        #             all_detection_details.append(f"{class_name}: {confidence*100:.2f}% (Motor)")
+        #             all_detected_class_names.append(class_name) # Tambahkan ke daftar semua kelas
+        #             if i == 0 and not class_for_gemini_description: # Jika oli/manusia tidak diprioritaskan, ambil motor pertama
+        #                 class_for_gemini_description = class_name
+        #     else:
+        #         app.logger.info("Tidak ada MEREK/WARNA MOTOR yang terdeteksi.")
+        # else:
+        #     app.logger.warning("Model deteksi MEREK/WARNA MOTOR tidak dimuat.")
 
         if all_detected_class_names:
             db_detected_class_name = ", ".join(sorted(list(set(all_detected_class_names))))
@@ -668,7 +666,7 @@ def _process_image_data_and_save_detection(
         elif not gemini_api_key_present:
             generative_desc = "Fitur deskripsi Gemini tidak aktif (API Key tidak ditemukan atau error konfigurasi)."
         elif gemini_api_key_present and not class_for_gemini_description and all_detection_details: # Ada deteksi lain, tapi bukan prioritas
-            generative_desc = "Deskripsi Gemini tidak dihasilkan (tidak ada objek prioritas (oli/manusia/motor) yang terdeteksi sebagai fokus utama untuk analisis, namun objek lain mungkin terdeteksi)."
+            generative_desc = "Deskripsi Gemini tidak dihasilkan (tidak ada objek oli yang terdeteksi sebagai fokus utama untuk analisis, namun objek lain mungkin terdeteksi)."
         elif gemini_api_key_present and not all_detection_details: # Tidak ada deteksi sama sekali
              generative_desc = "Deskripsi Gemini tidak dihasilkan (tidak ada objek yang terdeteksi)."
 
@@ -708,8 +706,8 @@ def _process_image_data_and_save_detection(
 @app.route('/process_browser_capture', methods=['POST'])
 @login_required
 def process_browser_capture() -> Tuple[Dict[str, Any], int]:
-    if not model_yolo_oil and not model_yolo_human and not model_yolo_motorcycle: # Cek apakah setidaknya satu model dimuat
-        return {"status": "error", "message": "Tidak ada model YOLO yang berhasil dimuat."}, 503
+    if not model_yolo_oil: # Cek apakah model oli dimuat
+        return {"status": "error", "message": "Model YOLO untuk deteksi oli tidak berhasil dimuat."}, 503
 
     data = request.get_json()
     if not data or 'image_data_url' not in data:
@@ -815,8 +813,8 @@ def api_capture_and_process() -> Union[FlaskResponse, WerkzeugResponse, Tuple[Di
     if not camera_base_ip:
         return {"error": "Alamat IP Kamera belum dikonfigurasi."}, 503
 
-    if not model_yolo_oil and not model_yolo_human and not model_yolo_motorcycle:
-        return {"error": "Tidak ada model YOLO yang berhasil dimuat."}, 503
+    if not model_yolo_oil:
+        return {"error": "Model YOLO untuk deteksi oli tidak berhasil dimuat."}, 503
 
     # Tentukan URL dan metode capture
     capture_path_to_use = str(CAMERA_CAPTURE_PATH) # Ensure it's a string
@@ -852,23 +850,23 @@ def api_capture_and_process() -> Union[FlaskResponse, WerkzeugResponse, Tuple[Di
                         img=annotated_image_bgr_np,
                         conf=True, labels=True)
 
-            # Proses dengan model manusia jika ada
-            if model_yolo_human:
-                results_human = model_yolo_human(img_np, verbose=False) # Gunakan img_np asli untuk input model
-                if results_human and results_human[0].boxes:
-                    # Eksplisit menampilkan confidence (akurasi) dan label
-                    annotated_image_bgr_np = results_human[0].plot(
-                        img=annotated_image_bgr_np,
-                        conf=True, labels=True)
+            # # Proses dengan model manusia jika ada
+            # if model_yolo_human:
+            #     results_human = model_yolo_human(img_np, verbose=False) # Gunakan img_np asli untuk input model
+            #     if results_human and results_human[0].boxes:
+            #         # Eksplisit menampilkan confidence (akurasi) dan label
+            #         annotated_image_bgr_np = results_human[0].plot(
+            #             img=annotated_image_bgr_np,
+            #             conf=True, labels=True)
 
-            # Proses dengan model merek/warna motor jika ada
-            if model_yolo_motorcycle:
-                results_motorcycle = model_yolo_motorcycle(img_np, verbose=False) # Gunakan img_np asli untuk input model
-                if results_motorcycle and results_motorcycle[0].boxes:
-                    # Eksplisit menampilkan confidence (akurasi) dan label
-                    annotated_image_bgr_np = results_motorcycle[0].plot(
-                        img=annotated_image_bgr_np,
-                        conf=True, labels=True)
+            # # Proses dengan model merek/warna motor jika ada
+            # if model_yolo_motorcycle:
+            #     results_motorcycle = model_yolo_motorcycle(img_np, verbose=False) # Gunakan img_np asli untuk input model
+            #     if results_motorcycle and results_motorcycle[0].boxes:
+            #         # Eksplisit menampilkan confidence (akurasi) dan label
+            #         annotated_image_bgr_np = results_motorcycle[0].plot(
+            #             img=annotated_image_bgr_np,
+            #             conf=True, labels=True)
 
 
             # Konversi array NumPy (BGR) ke format JPEG bytes
